@@ -122,6 +122,11 @@ header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.88);backdro
 .notice{position:fixed;left:50%;transform:translateX(-50%);top:64px;z-index:40;background:#fff;border:1px solid #bfdbfe;box-shadow:0 8px 24px rgba(37,99,235,.18);border-radius:12px;padding:10px 18px;font-size:13px;color:var(--blue-dark);transition:opacity .4s,top .4s;max-width:90%;text-align:center;opacity:0;pointer-events:none}
 .notice.show{opacity:1;top:58px;pointer-events:auto}
 
+/* 声音解锁提示 */
+.sound-unlock{position:fixed;left:50%;transform:translateX(-50%);top:70px;z-index:45;background:#fff;border:1.5px solid #bfdbfe;box-shadow:0 8px 24px rgba(37,99,235,.22);border-radius:99px;padding:11px 22px;font-size:14px;font-weight:700;color:#2563eb;cursor:pointer;animation:pulse 1.6s infinite}
+.sound-unlock:active{transform:translateX(-50%) scale(.95)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(59,130,246,.35)}50%{box-shadow:0 0 0 10px rgba(59,130,246,0)}}
+
 footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-height:1.8}
 </style>
 </head>
@@ -264,6 +269,8 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 </div>
 
 <div class="notice" id="notice"></div>
+
+<div class="sound-unlock hidden" id="soundUnlock" onclick="unlockAudio()">🔊 语音已连接，点这里开启声音</div>
 
 <script src="peerjs.min.js" onerror="loadPeerCDN()"></script>
 <script>
@@ -632,14 +639,24 @@ const AUD = {
   mixers:{},         // targetId -> {dest, srcs:[]}   targetId: 'host' 或 memberPeerId
   callByPeer:{},     // memberPeerId -> MediaConnection（主持人侧）
   myCall:null,       // 成员侧发起的 call
-  speakNode:null     // 主持人回放节点
+  hostAudioEl:null,  // 主持人收听用音频元素
+  myAudioEl:null     // 成员收听用音频元素
 };
+function isLimitedBrowser(){
+  const ua = navigator.userAgent || '';
+  return /MicroMessenger|\bQQ\/|\bMQQBrowser/i.test(ua);
+}
 function checkVoiceEnv(){
   const ok = !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia;
-  $('audioEnvTag').textContent = ok ? '可用' : '不可用';
+  const limited = isLimitedBrowser();
+  $('audioEnvTag').textContent = limited ? '受限' : (ok ? '可用' : '不可用');
   $('btnAudio').disabled = !ok;
-  if(!ok){
-    $('audioHint').innerHTML = '当前环境无法使用麦克风。<br>语音需要 <b>HTTPS 或 localhost</b> 环境（本地双击文件打开时不可用）。部署到网页后即可使用。';
+  if(limited){
+    $('audioHint').innerHTML = '<span class="alert">当前是微信/QQ内置浏览器，语音可能无法使用。</span><br>请点右上角「…」→「在浏览器打开」，用 <b>Safari（iPhone）或 Chrome/Edge（安卓）</b> 访问本页，语音即可正常使用。';
+  } else if(!ok){
+    $('audioHint').innerHTML = '<span class="alert">当前环境无法使用麦克风。</span><br>语音需要 <b>HTTPS</b> 环境（本地双击文件打开时不可用）。';
+  } else {
+    $('audioHint').innerHTML = '点击「开麦语音」，房间内所有人能互相听到。<br><span style="color:#9ca3af">首次使用需允许浏览器麦克风权限；听不到声音时点屏幕上的「开启声音」提示</span>';
   }
 }
 function ensureCtx(){
@@ -647,32 +664,73 @@ function ensureCtx(){
   if(AUD.ctx.state==='suspended') AUD.ctx.resume();
 }
 function audioOK(){ return !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia; }
+function updateMicBtn(){
+  const b = $('btnAudio');
+  if(S.mic){ b.textContent = '🔇 语音中 · 点我关麦'; b.className = 'btn red'; }
+  else { b.textContent = '🎤 开麦语音'; b.className = 'btn green'; }
+  b.disabled = !audioOK();
+}
+/* 声音被浏览器自动播放策略拦住时，显示解锁提示；用户点任意处即解锁 */
+function markAudioBlocked(){
+  if(S.audioBlocked) return;
+  S.audioBlocked = true;
+  $('soundUnlock').classList.remove('hidden');
+}
+function unlockAudio(){
+  try{ ensureCtx(); }catch(e){}
+  try{
+    if(AUD.hostAudioEl && AUD.hostAudioEl.srcObject) AUD.hostAudioEl.play().catch(()=>{});
+    if(AUD.myAudioEl && AUD.myAudioEl.srcObject) AUD.myAudioEl.play().catch(()=>{});
+  }catch(e){}
+  S.audioBlocked = false;
+  $('soundUnlock').classList.add('hidden');
+}
 async function toggleMic(){
   if(S.mic){ closeMic(); return; }
   await openMic();
 }
 async function openMic(){
-  if(!audioOK()){ toast('当前环境无法使用麦克风（需HTTPS）'); return; }
+  if(!audioOK()){
+    if(isLimitedBrowser()) toast('微信/QQ内打不开语音：点右上角「…」→在浏览器打开', 5000);
+    else toast('当前环境无法使用麦克风');
+    return;
+  }
   if(S.mic) return;
+  const b = $('btnAudio');
+  b.textContent = '⏳ 正在请求麦克风…';
+  b.disabled = true;
+  let st = null;
   try{
     ensureCtx();
-    const st = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+    try{ st = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}}); }
+    catch(e1){ st = await navigator.mediaDevices.getUserMedia({audio:true}); }
     AUD.mic = st;
     S.mic = true;
-    $('btnAudio').textContent = '🔇 关闭语音';
-    $('btnAudio').className = 'btn red';
-    $('audioHint').innerHTML = '<span class="ok-text">语音已开启</span> · 现在大家能听到你说话了';
+    updateMicBtn();
+    $('audioHint').innerHTML = '<span class="ok-text">语音已开启</span> · 房间里的人能互相听到。<br><span style="color:#9ca3af">如果对方听不到，请确认对方也点了「开麦」，并让对方点一下屏幕上的「开启声音」提示</span>';
     if(S.host){
       rebuildAudioRoutes();
     }else if(S.conn && S.conn.open){
       tryEnableMic();
     }else{
-      toast('加入房间后才能通话，已为你保留麦克风，连上后自动开麦');
+      toast('麦克风已就绪，连上主持人后自动通话');
     }
     broadcastMicState();
   }catch(e){
     S.mic = false;
-    toast('无法获取麦克风（可能被拒绝或没有设备）');
+    const name = e && e.name || '';
+    let msg = '无法获取麦克风';
+    if(name==='NotAllowedError' || name==='PermissionDeniedError'){
+      msg = '麦克风权限被拒绝：请点浏览器地址栏的锁/麦克风图标，把麦克风设为「允许」后刷新重试（iPhone可在 设置→Safari 中开启麦克风）';
+    } else if(name==='NotFoundError' || name==='DevicesNotFoundError'){
+      msg = '没有检测到麦克风设备';
+    } else if(name==='NotReadableError'){
+      msg = '麦克风被其他程序占用，请关闭其他通话软件后重试';
+    }
+    toast(msg, 6000);
+    $('audioHint').innerHTML = '<span class="alert">' + msg + '</span>';
+    updateMicBtn();
+    return;
   }
 }
 async function tryEnableMic(){
@@ -682,25 +740,29 @@ async function tryEnableMic(){
       const call = S.peer.call(peerPrefix(), AUD.mic);
       AUD.myCall = call;
       call.on('stream', remote => {
-        ensureCtx();
-        if(AUD.speakNode) try{ AUD.speakNode.disconnect(); }catch(e){}
-        AUD.speakNode = AUD.ctx.createMediaStreamSource(remote);
-        AUD.speakNode.connect(AUD.ctx.destination);
+        try{
+          if(!AUD.myAudioEl){
+            AUD.myAudioEl = new Audio();
+            AUD.myAudioEl.autoplay = true;
+            AUD.myAudioEl.setAttribute('playsinline','');
+          }
+          AUD.myAudioEl.srcObject = remote;
+          const p = AUD.myAudioEl.play();
+          if(p) p.catch(()=>markAudioBlocked());
+        }catch(e){ markAudioBlocked(); }
       });
-      call.on('close', ()=>{ if(AUD.speakNode){ try{AUD.speakNode.disconnect();}catch(e){} AUD.speakNode=null; } });
+      call.on('close', ()=>{ if(AUD.myAudioEl){ try{ AUD.myAudioEl.pause(); AUD.myAudioEl.srcObject=null; }catch(e){} } });
       call.on('error', ()=>{});
-    }catch(e){ toast('语音连接失败'); }
+    }catch(e){ toast('语音连接失败，请重试'); }
   }
 }
 function closeMic(){
   try{ AUD.mic && AUD.mic.getTracks().forEach(t=>t.stop()); }catch(e){}
   AUD.mic = null;
   S.mic = false;
-  $('btnAudio').textContent = '🎤 开麦语音';
-  $('btnAudio').className = 'btn green';
-  $('audioHint').innerHTML = '点击上方「开麦」开始语音通话';
   if(S.host){ rebuildAudioRoutes(); }
   else if(AUD.myCall){ try{ AUD.myCall.close(); }catch(e){} AUD.myCall = null; }
+  updateMicBtn();
   broadcastMicState();
 }
 function broadcastMicState(){
@@ -719,7 +781,12 @@ function broadcastMicState(){
 function onHostCall(call){
   const pid = call.peer;
   AUD.callByPeer[pid] = call;
-  call.answer(); // 先应答（稍后替换发送轨道为混音流）
+  try{ ensureCtx(); }catch(e){}
+  // 必须带一个音频流应答，才能建立发给成员的音频通道（之后 replaceTrack 换成专属混音）
+  try{
+    const placeholder = AUD.ctx.createMediaStreamDestination().stream;
+    call.answer(placeholder);
+  }catch(e){ try{ call.answer(); }catch(e2){} }
   call.on('stream', s => {
     AUD.remotes[pid] = s;
     rebuildAudioRoutes();
@@ -767,11 +834,18 @@ function rebuildAudioRoutes(){
   for(const pid in AUD.remotes){
     targets.forEach(id => { if(id!==pid) route(AUD.remotes[pid], AUD.mixers[id]); });
   }
-  // 主持人回放：host mixer -> 扬声器
+  // 主持人收听：host mixer -> 音频元素播放（手机端需手势激活，失败会提示解锁）
   try{
-    if(AUD.hostPlay){ AUD.hostPlay.disconnect(); }
-    AUD.hostPlay = AUD.ctx.createMediaStreamSource(AUD.mixers['host'].dest.stream);
-    AUD.hostPlay.connect(AUD.ctx.destination);
+    if(!AUD.hostAudioEl){
+      AUD.hostAudioEl = new Audio();
+      AUD.hostAudioEl.autoplay = true;
+      AUD.hostAudioEl.setAttribute('playsinline','');
+    }
+    const el = AUD.hostAudioEl;
+    const hostStream = AUD.mixers['host'].dest.stream;
+    if(el.srcObject !== hostStream) el.srcObject = hostStream;
+    const p = el.play();
+    if(p) p.catch(()=>markAudioBlocked());
   }catch(e){}
   // 每个成员接收：把自己对应的 mixer 输出替换到对应 call 的发送轨道
   for(const pid in AUD.callByPeer){
@@ -895,6 +969,12 @@ function loadPeerCDN(){
 
 /* ================= 启动 ================= */
 window.addEventListener('hashchange', ()=>{ if(location.hash) initFromHash(); else location.reload(); });
+// 手机端声音解锁：任意点击/触摸都尝试激活声音
+(function(){
+  const handler = ()=>{ if(S.audioBlocked) unlockAudio(); };
+  document.addEventListener('pointerdown', handler, true);
+  document.addEventListener('touchstart', handler, {passive:true, capture:true});
+})();
 (function init(){
   if(location.hash && location.hash.length>4){
     initFromHash();
