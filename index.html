@@ -134,7 +134,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
 <header>
   <div class="header-in">
-    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v1.5</span></div>
+    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v1.6</span></div>
     <div id="headerRoom" class="header-badge hidden">
       <span class="status-dot" id="statusDot"></span>
       房间 <b id="roomIdText"></b>
@@ -317,7 +317,7 @@ const S = {
   members:[]
 };
 const ROOM_PREFIX = 'yk-sync-';
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.6';
 /* WebRTC 打洞服务器：优先国内 STUN（腾讯/B站/CDNBye），备选 Google STUN + 免费 TURN 兼底 */
 const RTC_CONFIG = {
   iceServers: [
@@ -638,12 +638,13 @@ function applyControl(cmd, time, by){
   $('timerTime').textContent = fmt(S.curT);
   if(cmd==='play'){
     S.lastPlaying = true;
-    $('playState').textContent = '▶ '+by+'：从 '+fmt(S.curT)+' 开始播放';
+    const bufTip = isMobileBrowser() ? '（手机缓冲可能要几秒到十几秒，等画面起来）' : '';
+    $('playState').textContent = '▶ '+by+'：从 '+fmt(S.curT)+' 开始播放'+bufTip;
     buildPlayer(S.curT, true);
   }else{
+    // 暂停不再重建播放器（重建代价高：手机要重新缓冲）；显示提示让各自手动暂停
     S.lastPlaying = false;
-    $('playState').textContent = '⏸ '+by+'：暂停于 '+fmt(S.curT);
-    buildPlayer(S.curT, false);
+    $('playState').textContent = '⏸ '+by+'：暂停于 '+fmt(S.curT)+'（请各自在播放器里点暂停）';
   }
   if(S.host){
     broadcast({t:cmd, time:S.curT, by:by});
