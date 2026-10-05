@@ -134,7 +134,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
 <header>
   <div class="header-in">
-    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v1.4</span></div>
+    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v1.5</span></div>
     <div id="headerRoom" class="header-badge hidden">
       <span class="status-dot" id="statusDot"></span>
       房间 <b id="roomIdText"></b>
@@ -317,7 +317,7 @@ const S = {
   members:[]
 };
 const ROOM_PREFIX = 'yk-sync-';
-const APP_VERSION = 'v1.4';
+const APP_VERSION = 'v1.5';
 /* WebRTC 打洞服务器：优先国内 STUN（腾讯/B站/CDNBye），备选 Google STUN + 免费 TURN 兼底 */
 const RTC_CONFIG = {
   iceServers: [
@@ -661,7 +661,11 @@ const AUD = {
 };
 function isLimitedBrowser(){
   const ua = navigator.userAgent || '';
-  return /MicroMessenger|\bQQ\/|\bMQQBrowser/i.test(ua);
+  if(/Quark/i.test(ua)) return false;              // 夸克：实测支持麦克风，按正常处理
+  return /MicroMessenger|\bQQ\/|MQQBrowser|QQBrowser/i.test(ua);
+}
+function isMobileBrowser(){
+  return /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent || '');
 }
 function checkVoiceEnv(){
   const ok = !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia;
@@ -889,12 +893,18 @@ function currentMemberList(){
 /* ================= 播放器 ================= */
 function buildPlayer(t, autoplay){
   $('playerLoading').classList.remove('hidden');
+  // 手机浏览器会拦截有声自动播放：用静音自动播放（手机浏览器允许），用户点喇叭开声
+  let mutedParam = '';
+  if(autoplay && isMobileBrowser()) mutedParam = '&muted=1';
   const src = 'https://player.bilibili.com/player.html?bvid='+S.bvid+'&page='+S.page+
-    '&high_quality=1&autoplay='+(autoplay?1:0)+'&danmaku=0&t='+Math.max(0,Math.floor(t));
+    '&high_quality=1&autoplay='+(autoplay?1:0)+'&danmaku=0'+mutedParam+'&t='+Math.max(0,Math.floor(t));
   const f = $('player');
   f.src = src;
   f.onload = ()=> $('playerLoading').classList.add('hidden');
   setTimeout(()=>$('playerLoading').classList.add('hidden'), 12000);
+  if(autoplay && isMobileBrowser()){
+    toast('手机默认静音自动播放：点视频右下角喇叭图标可开声音；若画面没动，请点一下视频封面', 6000);
+  }
 }
 
 /* ================= 聊天 ================= */
@@ -990,6 +1000,8 @@ window.addEventListener('hashchange', ()=>{ if(location.hash) initFromHash(); el
   document.addEventListener('pointerdown', handler, true);
   document.addEventListener('touchstart', handler, {passive:true, capture:true});
 })();
+// 主持人端定期清理已离线的成员（手机锁屏/杀进程不会触发 close 事件）
+setInterval(()=>{ if(S.host && S.peer && S.peer.open){ syncMembers(); } }, 15000);
 (function init(){
   if(location.hash && location.hash.length>4){
     initFromHash();
