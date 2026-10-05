@@ -134,7 +134,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
 <header>
   <div class="header-in">
-    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v1.3</span></div>
+    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v1.4</span></div>
     <div id="headerRoom" class="header-badge hidden">
       <span class="status-dot" id="statusDot"></span>
       房间 <b id="roomIdText"></b>
@@ -310,13 +310,14 @@ const S = {
   curT:0, lastPlaying:false,
   perm:false,          // 主持人：是否允许成员控制
   canControl:false,    // 我（成员）是否有控制权
-  micOn:false,         // 我是否开麦
-  memberMic:{},        // 名字 -> 是否开麦
+  voicePeers:[],       // 成员端：其他成员 [{peerId,name,mic}]
+  roomMembers:[],      // 成员端：展示用成员名单
+  mic:false,
   peer:null, conn:null,
   members:[]
 };
 const ROOM_PREFIX = 'yk-sync-';
-const APP_VERSION = 'v1.3';
+const APP_VERSION = 'v1.4';
 /* WebRTC 打洞服务器：优先国内 STUN（腾讯/B站/CDNBye），备选 Google STUN + 免费 TURN 兼底 */
 const RTC_CONFIG = {
   iceServers: [
@@ -453,14 +454,14 @@ function startHost(){
   S.peer.on('open', id => { S.peerId = id; toast('房间已创建，把邀请链接发给朋友吧'); setStatus(true); });
   S.peer.on('connection', conn => {
     conn.on('open', ()=>{
-      conn.send({t:'init', cur:S.curT, playing:S.lastPlaying, host:S.myName, perm:S.perm, mic:{}, members:S.members.map(m=>m.name)});
+      conn.send({t:'init', cur:S.curT, playing:S.lastPlaying, host:S.myName, perm:S.perm, members:currentMemberList()});
       syncMembers();
     });
     conn.on('data', d => onHostData(conn, d));
-    conn.on('close', ()=>{ syncMembers(); cleanupAudioPeer(conn.peer); });
+    conn.on('close', ()=>{ syncMembers(); closeVoicePeer(conn.peer); });
     conn.on('error', ()=>syncMembers());
   });
-  S.peer.on('call', call => onHostCall(call));
+  S.peer.on('call', call => onIncomingCall(call));
   S.peer.on('disconnected', ()=> { setStatus(false); try{S.peer.reconnect();}catch(e){} });
   S.peer.on('error', err => {
     if(err && err.type==='unavailable-id'){ toast('房间名冲突，请返回重试'); }
@@ -477,6 +478,7 @@ function startMember(){
   if(!window.Peer){ toast('同步组件加载失败，请刷新重试'); return; }
   S.peer = new Peer(null, { config: RTC_CONFIG });
   S.peer.on('open', id => { S.peerId = id; connectToHost(); });
+  S.peer.on('call', call => onIncomingCall(call));
   S.peer.on('disconnected', ()=>{ setStatus(false); try{S.peer.reconnect();}catch(e){} });
   S.peer.on('error', ()=>{ setStatus(false); });
 }
@@ -487,7 +489,7 @@ function connectToHost(){
     S.conn = conn;
     setStatus(true);
     addChat('system','已加入房间，等待主持人同步…');
-    if(S.mic) tryEnableMic();
+    if(S.mic) connectVoiceAll();
   });
   conn.on('data', d => onMemberData(d));
   conn.on('close', ()=>{ setStatus(false); S.conn = null; scheduleRetry(); });
@@ -512,7 +514,6 @@ function onHostData(conn, d){
     const name = String(d.name||'朋友').slice(0,12);
     S.members = S.members.filter(m=>m.id!==conn.peer);
     S.members.push({id:conn.peer, name, mic:!!d.mic});
-    S.memberMic[name] = !!d.mic;
     broadcastState();
     syncMembers();
   } else if(d.t === 'chat'){
@@ -521,9 +522,9 @@ function onHostData(conn, d){
     // 协管操作
     applyControl(d.cmd, d.time, d.name||'协管');
   } else if(d.t === 'mic'){
-    const name = S.members.find(m=>m.id===conn.peer);
-    if(name) S.memberMic[name.name] = !!d.on;
-    broadcast({t:'mic', list:S.memberMic});
+    const m = S.members.find(x=>x.id===conn.peer);
+    if(m){ m.mic = !!d.on; }
+    broadcastState();
     renderMembers();
   }
 }
@@ -532,12 +533,13 @@ function syncMembers(){
   S.members.forEach(m => { if(m.id!=='me') m.online = isConnected(m.id); });
   renderMembers();
   broadcastState();
+  connectVoiceAll();   // 新成员加入时，若我已开麦则向其发起语音
 }
 function isConnected(peerId){
   try{ const c = S.peer.connections[peerId]; return c && c.some(x=>x.open); }catch(e){ return false; }
 }
 function broadcastState(){
-  const msg = {t:'state', cur:S.curT, playing:S.lastPlaying, host:S.myName, perm:S.perm, mic:S.memberMic, members:S.members.map(m=>m.name)};
+  const msg = {t:'state', cur:S.curT, playing:S.lastPlaying, host:S.myName, perm:S.perm, members:currentMemberList()};
   for(const k in S.peer.connections){
     const arr = S.peer.connections[k];
     arr.forEach(c => { try{ if(c.open) c.send(msg); }catch(e){} });
@@ -571,8 +573,6 @@ function onMemberData(d){
     S.canControl = !!d.can;
     renderAccess();
     addChat('system', S.canControl ? '主持人已开放「成员控制」，你可以同步大家了' : '主持人已收回成员控制权限');
-  } else if(d.t === 'mic'){
-    if(d.list && typeof d.list==='object'){ S.memberMic = d.list; renderMembers(); }
   } else if(d.t === 'chat'){
     addChat(d.name, d.text, false);
   }
@@ -582,13 +582,15 @@ function applyState(d, first){
   S.lastPlaying = !!d.playing;
   S.hostName = d.host||'主持人';
   S.perm = !!d.perm;
-  S.members = (d.members||[]).map(n=>({name:n}));
-  S.memberMic = (d.mic && typeof d.mic==='object') ? d.mic : {};
+  const list = Array.isArray(d.members) ? d.members : [];
+  S.voicePeers = list.filter(m => m.peerId && m.peerId !== S.peerId).map(m => ({peerId:m.peerId, name:m.name, mic:!!m.mic}));
+  S.roomMembers = list.map(m => ({name:m.name, mic:!!m.mic, me: m.peerId===S.peerId}));
   renderMembers();
   renderAccess();
   $('timerTime').textContent = fmt(S.curT);
   $('playState').textContent = S.lastPlaying ? '▶ 主持人已开播' : '⏸ 已暂停';
   if(first && !S._synced){ S._synced = true; buildPlayer(S.curT, S.lastPlaying); }
+  connectVoiceAll();
 }
 
 /* ================= 控制（主持人+协管） ================= */
@@ -650,15 +652,12 @@ function applyControl(cmd, time, by){
   }
 }
 
-/* ================= 语音（WebRTC，主持人混音转发） ================= */
+/* ================= 语音（网状直连：两两互连，不经混音转发，兼容手机浏览器） ================= */
 const AUD = {
-  ctx:null, mic:null,
-  remotes:{},        // memberPeerId -> MediaStream（成员的麦流）
-  mixers:{},         // targetId -> {dest, srcs:[]}   targetId: 'host' 或 memberPeerId
-  callByPeer:{},     // memberPeerId -> MediaConnection（主持人侧）
-  myCall:null,       // 成员侧发起的 call
-  hostAudioEl:null,  // 主持人收听用音频元素
-  myAudioEl:null     // 成员收听用音频元素
+  mic:null,
+  outCalls:{},   // peerId -> MediaConnection（我发起的，发我的麦克风）
+  inCalls:{},     // peerId -> MediaConnection（我接听的）
+  els:{}          // peerId -> Audio元素（播放对方声音）
 };
 function isLimitedBrowser(){
   const ua = navigator.userAgent || '';
@@ -677,10 +676,6 @@ function checkVoiceEnv(){
     $('audioHint').innerHTML = '点击「开麦语音」，房间内所有人能互相听到。<br><span style="color:#9ca3af">首次使用需允许浏览器麦克风权限；听不到声音时点屏幕上的「开启声音」提示</span>';
   }
 }
-function ensureCtx(){
-  if(!AUD.ctx){ AUD.ctx = new (window.AudioContext||window.webkitAudioContext)(); }
-  if(AUD.ctx.state==='suspended') AUD.ctx.resume();
-}
 function audioOK(){ return !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia; }
 function updateMicBtn(){
   const b = $('btnAudio');
@@ -695,10 +690,11 @@ function markAudioBlocked(){
   $('soundUnlock').classList.remove('hidden');
 }
 function unlockAudio(){
-  try{ ensureCtx(); }catch(e){}
   try{
-    if(AUD.hostAudioEl && AUD.hostAudioEl.srcObject) AUD.hostAudioEl.play().catch(()=>{});
-    if(AUD.myAudioEl && AUD.myAudioEl.srcObject) AUD.myAudioEl.play().catch(()=>{});
+    for(const pid in AUD.els){
+      const el = AUD.els[pid];
+      if(el && el.srcObject) el.play().catch(()=>{});
+    }
   }catch(e){}
   S.audioBlocked = false;
   $('soundUnlock').classList.add('hidden');
@@ -719,7 +715,6 @@ async function openMic(){
   b.disabled = true;
   let st = null;
   try{
-    ensureCtx();
     try{ st = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}}); }
     catch(e1){ st = await navigator.mediaDevices.getUserMedia({audio:true}); }
     AUD.mic = st;
@@ -727,9 +722,9 @@ async function openMic(){
     updateMicBtn();
     $('audioHint').innerHTML = '<span class="ok-text">语音已开启</span> · 房间里的人能互相听到。<br><span style="color:#9ca3af">如果对方听不到，请确认对方也点了「开麦」，并让对方点一下屏幕上的「开启声音」提示</span>';
     if(S.host){
-      rebuildAudioRoutes();
+      connectVoiceAll();
     }else if(S.conn && S.conn.open){
-      tryEnableMic();
+      connectVoiceAll();
     }else{
       toast('麦克风已就绪，连上主持人后自动通话');
     }
@@ -754,35 +749,72 @@ async function openMic(){
     return;
   }
 }
-async function tryEnableMic(){
-  if(S.mic && AUD.mic && S.peer && S.peer.open){
-    try{
-      ensureCtx();
-      const call = S.peer.call(peerPrefix(), AUD.mic);
-      AUD.myCall = call;
-      call.on('stream', remote => {
-        try{
-          if(!AUD.myAudioEl){
-            AUD.myAudioEl = new Audio();
-            AUD.myAudioEl.autoplay = true;
-            AUD.myAudioEl.setAttribute('playsinline','');
-          }
-          AUD.myAudioEl.srcObject = remote;
-          const p = AUD.myAudioEl.play();
-          if(p) p.catch(()=>markAudioBlocked());
-        }catch(e){ markAudioBlocked(); }
-      });
-      call.on('close', ()=>{ if(AUD.myAudioEl){ try{ AUD.myAudioEl.pause(); AUD.myAudioEl.srcObject=null; }catch(e){} } });
-      call.on('error', ()=>{});
-    }catch(e){ toast('语音连接失败，请重试'); }
+/* 网状直连：开麦者向房间内其他人发起语音连接；关麦则断开自己发起的连接 */
+function voiceTargetPeers(){
+  if(S.host){
+    return S.members.filter(m=>m.id!=='me' && isConnected(m.id)).map(m=>({peerId:m.id, name:m.name}));
   }
+  return (S.voicePeers||[]).map(m=>({peerId:m.peerId, name:m.name}));
+}
+function ensureVoiceCall(pid){
+  if(!S.mic || !AUD.mic || !S.peer || !S.peer.open) return;
+  const old = AUD.outCalls[pid];
+  if(old && old.open) return;
+  try{
+    const call = S.peer.call(pid, AUD.mic);
+    AUD.outCalls[pid] = call;
+    call.on('close', ()=>{ delete AUD.outCalls[pid]; });
+    call.on('error', ()=>{ delete AUD.outCalls[pid]; });
+  }catch(e){}
+}
+function connectVoiceAll(){
+  if(!S.mic) return;
+  voiceTargetPeers().forEach(m => ensureVoiceCall(m.peerId));
+}
+/* 接听：对方发起的语音连接（对方开麦了） */
+function onIncomingCall(call){
+  const pid = call.peer;
+  const old = AUD.inCalls[pid];
+  try{ if(old) old.close(); }catch(e){}
+  AUD.inCalls[pid] = call;
+  try{ call.answer(S.mic ? AUD.mic : undefined); }catch(e){ try{ call.answer(); }catch(e2){} }
+  call.on('stream', stream => playRemote(pid, stream));
+  call.on('close', ()=>{ delete AUD.inCalls[pid]; stopRemote(pid); });
+  call.on('error', ()=>{ delete AUD.inCalls[pid]; });
+}
+function playRemote(pid, stream){
+  try{
+    let el = AUD.els[pid];
+    if(!el){
+      el = new Audio();
+      el.autoplay = true;
+      el.setAttribute('playsinline','');
+      AUD.els[pid] = el;
+    }
+    el.srcObject = stream;
+    const p = el.play();
+    if(p) p.catch(()=>markAudioBlocked());
+  }catch(e){ markAudioBlocked(); }
+}
+function stopRemote(pid){
+  const el = AUD.els[pid];
+  if(el){ try{ el.pause(); el.srcObject = null; }catch(e){} }
+}
+function closeVoicePeer(pid){
+  try{ if(AUD.outCalls[pid]) AUD.outCalls[pid].close(); }catch(e){}
+  try{ if(AUD.inCalls[pid]) AUD.inCalls[pid].close(); }catch(e){}
+  delete AUD.outCalls[pid];
+  delete AUD.inCalls[pid];
+  stopRemote(pid);
 }
 function closeMic(){
   try{ AUD.mic && AUD.mic.getTracks().forEach(t=>t.stop()); }catch(e){}
   AUD.mic = null;
   S.mic = false;
-  if(S.host){ rebuildAudioRoutes(); }
-  else if(AUD.myCall){ try{ AUD.myCall.close(); }catch(e){} AUD.myCall = null; }
+  for(const pid in AUD.outCalls){
+    try{ AUD.outCalls[pid].close(); }catch(e){}
+  }
+  AUD.outCalls = {};
   updateMicBtn();
   broadcastMicState();
 }
@@ -817,15 +849,15 @@ function buildDiagHtml(){
   if(S.host){
     info.push('身份: 主持人');
     info.push('信令连接: ' + (S.peer && S.peer.open ? '正常' : '未连接'));
-    info.push('语音连接数: ' + Object.keys(AUD.callByPeer).length);
-    info.push('收到的麦流: ' + Object.keys(AUD.remotes).length);
-    info.push('我的扬声器: ' + (AUD.hostAudioEl && AUD.hostAudioEl.srcObject ? (AUD.hostAudioEl.paused ? '待点击开启' : '播放中') : '无声源'));
   } else {
     info.push('身份: 成员');
     info.push('与主持人连接: ' + (S.conn && S.conn.open ? '正常' : '未连接'));
-    info.push('语音连接: ' + (AUD.myCall ? (AUD.myCall.open ? '已建立' : '建立中/失败') : '未建立'));
-    info.push('我的扬声器: ' + (AUD.myAudioEl && AUD.myAudioEl.srcObject ? (AUD.myAudioEl.paused ? '待点击开启' : '播放中') : '无声源'));
   }
+  info.push('房间人数: ' + (voiceTargetPeers().length + 1));
+  info.push('我发起的语音连接: ' + Object.keys(AUD.outCalls).filter(k=>AUD.outCalls[k]&&AUD.outCalls[k].open).length + ' 条');
+  info.push('收到对方的语音连接: ' + Object.keys(AUD.inCalls).filter(k=>AUD.inCalls[k]&&AUD.inCalls[k].open).length + ' 条');
+  const playing = Object.keys(AUD.els).filter(k => AUD.els[k] && AUD.els[k].srcObject && !AUD.els[k].paused).length;
+  info.push('正在播放的声源: ' + playing + ' 路' + (playing ? '' : (Object.keys(AUD.els).length ? '（有流但未播放，请点屏幕上的「开启声音」）' : '（暂无声音流入）')));
   info.push('UA: ' + (navigator.userAgent||'').slice(0,100));
   _diagText = info.join('\n');
   return '<div style="white-space:pre-line;font-size:12px;line-height:1.9">' + escapeHtml(_diagText) + '</div>' +
@@ -841,105 +873,19 @@ function copyDiag(){
 
 function broadcastMicState(){
   if(S.host){
-    const list = {};
-    S.members.forEach(m => { if(m.id!=='me') list[m.name] = !!S.memberMic[m.name]; });
-    if(S.myName) list[S.myName] = S.mic;
-    S.memberMic = list;
-    broadcast({t:'mic', list:list});
     renderMembers();
+    broadcastState();
   }else if(S.conn && S.conn.open){
     S.conn.send({t:'mic', on:S.mic});
   }
 }
-/* 主持人侧：收到成员语音 */
-function onHostCall(call){
-  const pid = call.peer;
-  AUD.callByPeer[pid] = call;
-  try{ ensureCtx(); }catch(e){}
-  // 必须带一个音频流应答，才能建立发给成员的音频通道（之后 replaceTrack 换成专属混音）
-  try{
-    const placeholder = AUD.ctx.createMediaStreamDestination().stream;
-    call.answer(placeholder);
-  }catch(e){ try{ call.answer(); }catch(e2){} }
-  call.on('stream', s => {
-    AUD.remotes[pid] = s;
-    rebuildAudioRoutes();
-  });
-  call.on('close', ()=>{ cleanupAudioPeer(pid); });
-  call.on('error', ()=>{});
+function currentMemberList(){
+  return S.members.map(m => ({
+    peerId: (m.id==='me' ? peerPrefix() : m.id),
+    name: m.name,
+    mic: (m.id==='me' ? S.mic : !!m.mic)
+  }));
 }
-function cleanupAudioPeer(pid){
-  delete AUD.remotes[pid];
-  delete AUD.callByPeer[pid];
-  rebuildAudioRoutes();
-}
-function createMixer(id){
-  if(AUD.mixers[id]) return AUD.mixers[id];
-  const dest = AUD.ctx.createMediaStreamDestination();
-  const mixer = {dest:dest, srcs:[]};
-  AUD.mixers[id] = mixer;
-  return mixer;
-}
-function destroyMixer(id){
-  const m = AUD.mixers[id];
-  if(!m) return;
-  m.srcs.forEach(s=>{ try{s.disconnect();}catch(e){} });
-  delete AUD.mixers[id];
-}
-function route(stream, mixer){
-  try{
-    const src = AUD.ctx.createMediaStreamSource(stream);
-    src.connect(mixer.dest);
-    mixer.srcs.push(src);
-  }catch(e){}
-}
-/* 全量重建路由：给每个目标（host和各成员）混入"除自己外所有人"的声音 */
-function rebuildAudioRoutes(){
-  if(!AUD.ctx) return;
-  for(const id in AUD.mixers){ destroyMixer(id); }
-  AUD.mixers = {};
-  const targets = ['host', ...Object.keys(AUD.remotes)];
-  targets.forEach(id => createMixer(id));
-  // 主持人麦克风 → 所有成员 mixer
-  if(AUD.mic){
-    targets.forEach(id => { if(id!=='host') route(AUD.mic, AUD.mixers[id]); });
-  }
-  // 每个成员的流 → host mixer + 其他成员 mixer（不含自己）
-  for(const pid in AUD.remotes){
-    targets.forEach(id => { if(id!==pid) route(AUD.remotes[pid], AUD.mixers[id]); });
-  }
-  // 主持人收听：host mixer -> 音频元素播放（手机端需手势激活，失败会提示解锁）
-  try{
-    if(!AUD.hostAudioEl){
-      AUD.hostAudioEl = new Audio();
-      AUD.hostAudioEl.autoplay = true;
-      AUD.hostAudioEl.setAttribute('playsinline','');
-    }
-    const el = AUD.hostAudioEl;
-    const hostStream = AUD.mixers['host'].dest.stream;
-    if(el.srcObject !== hostStream) el.srcObject = hostStream;
-    const p = el.play();
-    if(p) p.catch(()=>markAudioBlocked());
-  }catch(e){}
-  // 每个成员接收：把自己对应的 mixer 输出替换到对应 call 的发送轨道
-  for(const pid in AUD.callByPeer){
-    attachMixerToCall(pid);
-  }
-}
-function attachMixerToCall(pid){
-  try{
-    const mixer = AUD.mixers[pid];
-    const call = AUD.callByPeer[pid];
-    if(!mixer || !call) return;
-    const track = mixer.dest.stream.getAudioTracks()[0];
-    if(!track) return;
-    const pc = call.peerConnection;
-    if(!pc || !pc.getSenders) return;
-    const sender = pc.getSenders().find(s => s.track && s.track.kind==='audio');
-    if(sender) sender.replaceTrack(track).catch(()=>{});
-  }catch(e){}
-}
-
 /* ================= 播放器 ================= */
 function buildPlayer(t, autoplay){
   $('playerLoading').classList.remove('hidden');
@@ -979,25 +925,20 @@ function sendChat(){
 function renderMembers(){
   const box = $('membersBox');
   box.innerHTML = '';
-  let list = S.members || [];
+  let list = [];
   if(S.host){
-    // 主持人的列表结构 {id,name,mic}
-    list = S.members;
-  }else{
-    // 成员端从广播收到的是名字数组
+    list = S.members.map(m => ({name:m.name, mic: (m.id==='me'? S.mic : !!m.mic), me: m.id==='me'}));
+  } else {
+    list = S.roomMembers || [];
   }
   if(!list.length){ box.innerHTML = '<span style="font-size:12px;color:#9ca3af">暂无成员</span>'; }
-  const shown = {};
   list.forEach(m => {
-    const name = m.name || m || '朋友';
-    if(shown[name]) return; shown[name] = true;
+    const name = m.name || '朋友';
     const c = document.createElement('div');
     c.className = 'member-chip';
-    const micOn = S.host ? !!m.mic : !!S.memberMic[name];
-    const isMe = name===S.myName;
-    c.innerHTML = '<span class="ava">'+escapeHtml(name[0])+'</span>'+escapeHtml(name)+
-      (isMe?' <span class="me-tag">(我)</span>':'')+
-      (micOn?' <span class="mic-tag">🎤 语音中</span>':'');
+    c.innerHTML = '<span class="ava">'+escapeHtml((name||'友')[0])+'</span>'+escapeHtml(name)+
+      (m.me?' <span class="me-tag">(我)</span>':'')+
+      (m.mic?' <span class="mic-tag">🎤 语音中</span>':'');
     box.appendChild(c);
   });
   $('memberCount').textContent = list.length+'人';
