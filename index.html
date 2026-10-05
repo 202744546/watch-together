@@ -134,7 +134,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
 <header>
   <div class="header-in">
-    <div class="logo"><span class="dot">▶</span>一起看视频</div>
+    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v1.3</span></div>
     <div id="headerRoom" class="header-badge hidden">
       <span class="status-dot" id="statusDot"></span>
       房间 <b id="roomIdText"></b>
@@ -229,6 +229,10 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
           <button class="btn green" id="btnAudio" onclick="toggleMic()">🎤 开麦语音</button>
         </div>
         <div class="audio-hint" id="audioHint">点击「开麦」后，房间内所有人都能听到你说话，也能听到其他人。</div>
+        <div style="margin-top:8px;text-align:center">
+          <a href="javascript:void(0)" onclick="toggleDiag()" style="font-size:12px;color:#2563eb">语音有问题？点这里诊断</a>
+        </div>
+        <div id="diagBox" class="hint hidden mt"></div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -312,6 +316,20 @@ const S = {
   members:[]
 };
 const ROOM_PREFIX = 'yk-sync-';
+const APP_VERSION = 'v1.3';
+/* WebRTC 打洞服务器：优先国内 STUN（腾讯/B站/CDNBye），备选 Google STUN + 免费 TURN 兼底 */
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.qq.com:3478' },
+    { urls: 'stun:stun.chat.bilibili.com:3478' },
+    { urls: 'stun:stun.cdnbye.com:3478' },
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  ],
+  iceCandidatePoolSize: 4
+};
 
 /* ================= 链接解析 ================= */
 function parseBiliLink(str){
@@ -431,7 +449,7 @@ function startHost(){
   $('timerTime').textContent = fmt(S.curT);
   buildPlayer(0, false);
   if(!window.Peer){ toast('同步组件加载失败，请刷新重试'); return; }
-  S.peer = new Peer(ROOM_PREFIX + S.roomId);
+  S.peer = new Peer(ROOM_PREFIX + S.roomId, { config: RTC_CONFIG });
   S.peer.on('open', id => { S.peerId = id; toast('房间已创建，把邀请链接发给朋友吧'); setStatus(true); });
   S.peer.on('connection', conn => {
     conn.on('open', ()=>{
@@ -457,7 +475,7 @@ function startMember(){
   if(S.peer){ try{S.peer.destroy();}catch(e){} S.peer = null; }
   buildPlayer(0, false);
   if(!window.Peer){ toast('同步组件加载失败，请刷新重试'); return; }
-  S.peer = new Peer();
+  S.peer = new Peer(null, { config: RTC_CONFIG });
   S.peer.on('open', id => { S.peerId = id; connectToHost(); });
   S.peer.on('disconnected', ()=>{ setStatus(false); try{S.peer.reconnect();}catch(e){} });
   S.peer.on('error', ()=>{ setStatus(false); });
@@ -719,6 +737,7 @@ async function openMic(){
   }catch(e){
     S.mic = false;
     const name = e && e.name || '';
+    S.lastMicError = name + ' - ' + (e && e.message || '');
     let msg = '无法获取麦克风';
     if(name==='NotAllowedError' || name==='PermissionDeniedError'){
       msg = '麦克风权限被拒绝：请点浏览器地址栏的锁/麦克风图标，把麦克风设为「允许」后刷新重试（iPhone可在 设置→Safari 中开启麦克风）';
@@ -726,6 +745,8 @@ async function openMic(){
       msg = '没有检测到麦克风设备';
     } else if(name==='NotReadableError'){
       msg = '麦克风被其他程序占用，请关闭其他通话软件后重试';
+    } else if(name){
+      msg = '麦克风打开失败（' + name + '），请截图诊断信息发给我们';
     }
     toast(msg, 6000);
     $('audioHint').innerHTML = '<span class="alert">' + msg + '</span>';
@@ -765,6 +786,59 @@ function closeMic(){
   updateMicBtn();
   broadcastMicState();
 }
+/* ================= 语音诊断 ================= */
+let _diagText = '';
+function toggleDiag(){
+  const box = $('diagBox');
+  if(box.classList.contains('hidden')){
+    box.innerHTML = buildDiagHtml();
+    box.classList.remove('hidden');
+  } else {
+    box.classList.add('hidden');
+  }
+}
+function browserName(){
+  const ua = navigator.userAgent || '';
+  if(/MicroMessenger/i.test(ua)) return '微信内置浏览器';
+  if(/MQQBrowser|QQ\//i.test(ua)) return 'QQ内置浏览器';
+  if(/iPhone|iPad|iPod/i.test(ua)) return /CriOS/i.test(ua) ? 'iPhone Chrome' : 'iPhone Safari';
+  if(/Android/i.test(ua)) return /Chrome|Edg/i.test(ua) ? '安卓 Chrome/Edge' : '安卓浏览器';
+  return '电脑浏览器';
+}
+function buildDiagHtml(){
+  const info = [];
+  info.push('版本: ' + APP_VERSION);
+  info.push('浏览器: ' + browserName() + (isLimitedBrowser() ? '（内置浏览器，语音受限，建议用 Safari/Chrome 打开）' : ''));
+  info.push('HTTPS: ' + (window.isSecureContext ? '是' : '否（语音不可用！）'));
+  info.push('麦克风接口: ' + (audioOK() ? '支持' : '不支持（当前浏览器打不开麦克风）'));
+  info.push('音频引擎: ' + ((window.AudioContext||window.webkitAudioContext) ? '支持' : '不支持'));
+  info.push('我的开麦: ' + (S.mic ? '已开' : '未开'));
+  if(S.lastMicError) info.push('最近开麦错误: ' + S.lastMicError);
+  if(S.host){
+    info.push('身份: 主持人');
+    info.push('信令连接: ' + (S.peer && S.peer.open ? '正常' : '未连接'));
+    info.push('语音连接数: ' + Object.keys(AUD.callByPeer).length);
+    info.push('收到的麦流: ' + Object.keys(AUD.remotes).length);
+    info.push('我的扬声器: ' + (AUD.hostAudioEl && AUD.hostAudioEl.srcObject ? (AUD.hostAudioEl.paused ? '待点击开启' : '播放中') : '无声源'));
+  } else {
+    info.push('身份: 成员');
+    info.push('与主持人连接: ' + (S.conn && S.conn.open ? '正常' : '未连接'));
+    info.push('语音连接: ' + (AUD.myCall ? (AUD.myCall.open ? '已建立' : '建立中/失败') : '未建立'));
+    info.push('我的扬声器: ' + (AUD.myAudioEl && AUD.myAudioEl.srcObject ? (AUD.myAudioEl.paused ? '待点击开启' : '播放中') : '无声源'));
+  }
+  info.push('UA: ' + (navigator.userAgent||'').slice(0,100));
+  _diagText = info.join('\n');
+  return '<div style="white-space:pre-line;font-size:12px;line-height:1.9">' + escapeHtml(_diagText) + '</div>' +
+    '<button class="btn small mt" onclick="copyDiag()">复制诊断信息发给朋友排查</button>';
+}
+function copyDiag(){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(_diagText).then(()=>toast('已复制，发给朋友即可'),()=>toast('复制失败，请长按文本手动复制'));
+  } else {
+    toast('请长按上方文本手动复制');
+  }
+}
+
 function broadcastMicState(){
   if(S.host){
     const list = {};
@@ -932,7 +1006,7 @@ function renderMembers(){
 
 /* ================= 邀请 ================= */
 function showInvite(){
-  const base = location.origin + location.pathname;
+  const base = location.origin + location.pathname + (location.search || '?v=' + APP_VERSION.replace('v',''));
   const link = base + '#room='+S.roomId+'&bvid='+S.bvid+'&p='+S.page;
   S.inviteLink = link;
   $('inviteUrl').value = link;
