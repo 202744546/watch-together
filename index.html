@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>一起看视频 · B站同步观影</title>
+<style>
+:root{
+  --blue:#3b82f6; --blue-dark:#2563eb; --blue-soft:#eff6ff;
+  --bg:#f6f8fb; --card:#fff; --line:#e5eaf2;
+  --text:#1f2937; --muted:#6b7280; --ok:#16a34a; --warn:#d97706; --red:#dc2626;
+  --radius:14px; --shadow:0 2px 14px rgba(30,64,175,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+button{font-family:inherit;cursor:pointer;border:none;outline:none}
+input{font-family:inherit;outline:none}
+.hidden{display:none!important}
+
+/* 顶部栏 */
+header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.header-in{max-width:1080px;margin:0 auto;display:flex;align-items:center;gap:12px;padding:10px 16px}
+.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:17px;color:var(--blue-dark);white-space:nowrap}
+.logo .dot{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#60a5fa,#2563eb);display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff}
+.header-badge{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);background:var(--blue-soft);padding:4px 10px;border-radius:99px;margin-left:auto}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#d1d5db;display:inline-block}
+.status-dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(22,163,74,.15)}
+.header-badge b{color:var(--blue-dark)}
+#headerRoom{display:flex;align-items:center}
+#btnHome{margin-left:10px}
+
+/* 布局 */
+.wrap{max-width:1080px;margin:0 auto;padding:20px 16px 40px}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin-bottom:16px}
+.step{font-size:13px;color:var(--muted);margin-bottom:10px}
+.step b{color:var(--blue-dark)}
+
+/* 输入与按钮 */
+.url-input{width:100%;padding:13px 15px;font-size:15px;border:1.5px solid #dbe3f0;border-radius:12px;transition:border .2s,box-shadow .2s;background:#fbfdff}
+.url-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:linear-gradient(135deg,#60a5fa,#2563eb);color:#fff;font-size:15px;font-weight:600;padding:11px 22px;border-radius:12px;transition:transform .1s,opacity .2s;white-space:nowrap}
+.btn:active{transform:scale(.97)}
+.btn.ghost{background:#fff;color:var(--blue-dark);border:1.5px solid #cfe0fb}
+.btn.small{padding:7px 13px;font-size:13px;border-radius:9px}
+.btn.green{background:linear-gradient(135deg,#34d399,#059669)}
+.btn.red{background:#fff;color:var(--red);border:1.5px solid #fecaca}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grow{flex:1;min-width:0}
+.mt{margin-top:14px}
+
+/* 视频卡 */
+.vid-card{display:flex;gap:14px;align-items:center;background:var(--blue-soft);border:1px solid #dbe8fe;border-radius:12px;padding:12px}
+.vid-card .thumb{width:112px;height:64px;border-radius:8px;background:linear-gradient(135deg,#bfdbfe,#93c5fd);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;flex-shrink:0;overflow:hidden}
+.vid-card .thumb img{width:100%;height:100%;object-fit:cover}
+.vid-card .info{min-width:0}
+.vid-card .t{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.vid-card .m{font-size:12px;color:var(--muted);margin-top:4px}
+
+/* 提示条 */
+.hint{font-size:12.5px;color:var(--muted);line-height:1.8;background:#f8fafc;border:1px dashed #d7e0ee;border-radius:10px;padding:10px 12px}
+.hint b{color:var(--blue-dark)}
+.alert{color:var(--warn)}
+.ok-text{color:var(--ok)}
+
+/* 播放器 */
+.stage{position:relative;background:#0b1220;border-radius:var(--radius);overflow:hidden;aspect-ratio:16/9;box-shadow:var(--shadow)}
+.stage iframe{position:absolute;inset:0;width:100%;height:100%;border:none}
+.player-loading{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;color:#94a3b8;font-size:13px}
+.spin{width:30px;height:30px;border:3px solid rgba(148,163,184,.25);border-top-color:#60a5fa;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 面板 */
+.panel-grid{display:grid;grid-template-columns:1fr 330px;gap:16px;margin-top:16px;align-items:start}
+@media(max-width:900px){.panel-grid{grid-template-columns:1fr}.stage{aspect-ratio:16/10}}
+.panel-title{font-size:14px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.tag{font-size:11px;font-weight:500;color:var(--muted);background:#f1f5f9;padding:2px 8px;border-radius:99px}
+.timer-time{text-align:center;font-size:30px;font-weight:800;color:var(--blue-dark);background:var(--blue-soft);border-radius:12px;padding:14px;font-variant-numeric:tabular-nums;letter-spacing:1px}
+.play-state{text-align:center;font-size:12px;color:var(--muted);margin-top:8px}
+.steps{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px}
+.steps button{background:#fff;border:1.5px solid #dbe3f0;border-radius:9px;padding:8px 0;font-size:12.5px;color:var(--text)}
+.steps button:hover{background:var(--blue-soft);border-color:#bfdbfe}
+.seek-row{display:flex;gap:8px;margin-top:10px}
+.seek-row input{flex:1;min-width:0;padding:9px 12px;border:1.5px solid #dbe3f0;border-radius:9px;font-size:14px;background:#fbfdff}
+.ctl-row{display:flex;gap:10px;margin-top:12px}
+.ctl-row .btn{flex:1;padding:12px 0;font-size:15px}
+.perm-row{display:flex;gap:10px;margin-top:12px}
+.perm-row .btn{flex:1}
+
+/* 聊天 */
+.chat-box{height:210px;overflow-y:auto;background:#fafcff;border:1px solid #e4eaf2;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth}
+.chat-msg{font-size:13px;line-height:1.6;word-break:break-word}
+.chat-msg .who{font-weight:600;color:var(--blue-dark);margin-right:6px}
+.chat-msg .sys{color:var(--warn);font-size:12.5px}
+.chat-input-row{display:flex;gap:8px;margin-top:10px}
+.chat-input-row input{flex:1;min-width:0;padding:9px 12px;border:1.5px solid #dbe3f0;border-radius:10px;font-size:14px;background:#fbfdff}
+
+/* 成员 */
+.members{display:flex;flex-wrap:wrap;gap:8px}
+.member-chip{display:inline-flex;align-items:center;gap:6px;background:var(--blue-soft);color:var(--blue-dark);border-radius:99px;padding:5px 12px;font-size:12.5px;font-weight:600}
+.member-chip .ava{width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#60a5fa,#2563eb);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center}
+.member-chip .me-tag{font-size:10px;color:var(--ok);font-weight:400}
+.member-chip .mic-tag{font-size:10px;color:var(--blue-dark);background:#dbeafe;padding:1px 6px;border-radius:99px;font-weight:500}
+
+/* 语音 */
+.audio-row{display:flex;gap:10px;margin-top:12px;align-items:center}
+.audio-row .btn{flex:1}
+.audio-hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.7}
+
+/* 邀请 */
+.invite-box{display:flex;gap:8px}
+.invite-box input{flex:1;min-width:0;padding:9px 12px;border:1.5px solid #dbe3f0;border-radius:10px;font-size:12px;color:var(--muted);background:#fbfdff}
+
+/* 弹窗 */
+.mask{position:fixed;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(4px);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal{background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal h3{font-size:16px;margin-bottom:8px}
+.modal p{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:14px}
+.modal .btn{width:100%;margin-top:10px}
+
+/* 公告 */
+.notice{position:fixed;left:50%;transform:translateX(-50%);top:64px;z-index:40;background:#fff;border:1px solid #bfdbfe;box-shadow:0 8px 24px rgba(37,99,235,.18);border-radius:12px;padding:10px 18px;font-size:13px;color:var(--blue-dark);transition:opacity .4s,top .4s;max-width:90%;text-align:center;opacity:0;pointer-events:none}
+.notice.show{opacity:1;top:58px;pointer-events:auto}
+
+footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-height:1.8}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-in">
+    <div class="logo"><span class="dot">▶</span>一起看视频</div>
+    <div id="headerRoom" class="header-badge hidden">
+      <span class="status-dot" id="statusDot"></span>
+      房间 <b id="roomIdText"></b>
+      <span id="memberCountText">0人</span>
+      <button class="btn ghost small" style="margin-left:8px" onclick="goHome()">退出</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ 首页 ============ -->
+  <section id="homeView">
+    <div class="card">
+      <div class="step"><b>第 1 步</b> · 粘贴 B站视频链接（支持 BV号 / 完整链接 / 带分P的链接）</div>
+      <input id="urlInput" class="url-input" placeholder="例如：https://www.bilibili.com/video/BV1xxxxxxxxx?p=2" autocomplete="off">
+      <div class="row mt">
+        <button class="btn" onclick="parseAndShow()">解析视频</button>
+        <button class="btn ghost" onclick="pasteClipboard()">粘贴剪贴板</button>
+      </div>
+      <div id="parseMsg" class="hint hidden mt"></div>
+    </div>
+
+    <div id="vidCardWrap" class="hidden">
+      <div class="card">
+        <div class="vid-card" id="vidCard"></div>
+        <div class="row mt">
+          <input id="nickInput" class="url-input grow" placeholder="你的昵称（如：小明）" maxlength="12" autocomplete="off">
+          <button class="btn" onclick="createRoom()">创建房间 · 开始一起看</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-title">怎么用</div>
+      <div class="hint">
+        <b>①</b> 创建者粘贴 B站视频链接，创建房间，把「邀请链接」发给朋友<br>
+        <b>②</b> 朋友点开邀请链接进入房间，两边看到同一个视频<br>
+        <b>③</b> 创建者用「时间 + 播放 / 暂停」把大家拉到同一个位置，画面同步<br>
+        <b>④</b> 支持文字聊天和<b>语音通话</b>（点「语音」开麦，面对面边看边聊）<br>
+        <b>⑤</b> 主持人可「允许成员控制」，开启后朋友也能同步画面<br><br>
+        <span class="alert">说明：B站播放器不允许外部网页直接读取播放进度，本工具采用「同步到指定时间点」的方式一起看；主持人或协管看到某个时间点时，点「播放」即可让所有人跳过去同时开播。<br>语音功能需要 HTTPS 环境（本地双击打开时不可用，浏览器会提示）。</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 房间 ============ -->
+  <section id="roomView" class="hidden">
+    <div class="stage">
+      <div class="player-loading" id="playerLoading"><div class="spin"></div>正在加载 B站播放器…</div>
+      <iframe id="player" allowfullscreen allow="autoplay; fullscreen; encrypted-media; microphone" src="about:blank" title="B站播放器"></iframe>
+    </div>
+
+    <div class="panel-grid">
+      <div class="card">
+        <div class="panel-title">同步控制 <span class="tag" id="roleTag"></span></div>
+        <div class="timer-time" id="timerTime">00:00:00</div>
+        <div class="play-state" id="playState">尚未同步</div>
+
+        <div id="controlsArea" class="hidden">
+          <div class="steps">
+            <button onclick="nudgeTime(-60)">-1分</button>
+            <button onclick="nudgeTime(-10)">-10秒</button>
+            <button onclick="nudgeTime(-1)">-1秒</button>
+            <button onclick="nudgeTime(1)">+1秒</button>
+            <button onclick="nudgeTime(10)">+10秒</button>
+            <button onclick="nudgeTime(60)">+1分</button>
+          </div>
+          <div class="seek-row">
+            <input id="seekInput" placeholder="输入时间，如 12:34 或 1:02:03" autocomplete="off">
+            <button class="btn small" onclick="seekToInput()">跳转</button>
+          </div>
+          <div class="ctl-row">
+            <button class="btn" onclick="ctrlPlay()">▶ 播放</button>
+            <button class="btn ghost" onclick="ctrlPause()">⏸ 暂停</button>
+          </div>
+        </div>
+
+        <div id="hostPanel" class="hidden">
+          <div class="perm-row">
+            <button class="btn ghost" id="btnPerm" onclick="togglePerm()">🔓 允许成员控制</button>
+          </div>
+          <div class="hint mt">开播/暂停会广播给所有人。开启「允许成员控制」后，朋友也能同步画面。<br>改时间：看自己播放器左下角的进度，在输入框填好再点播放。</div>
+        </div>
+        <div id="memberPanel" class="hidden">
+          <div class="hint">等待主持人同步中… 收到指令后播放器会自动跳转。<br>获得「成员控制」权限后，你也能同步大家。</div>
+        </div>
+
+        <!-- 语音 -->
+        <div class="panel-title mt" style="margin-top:18px">语音通话 <span class="tag" id="audioEnvTag"></span></div>
+        <div class="audio-row">
+          <button class="btn green" id="btnAudio" onclick="toggleMic()">🎤 开麦语音</button>
+        </div>
+        <div class="audio-hint" id="audioHint">点击「开麦」后，房间内所有人都能听到你说话，也能听到其他人。</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="panel-title">在线成员 <span class="tag" id="memberCount">0人</span></div>
+          <div class="members" id="membersBox"></div>
+        </div>
+        <div class="card">
+          <div class="panel-title">聊天 <span class="tag">文字互动</span></div>
+          <div class="chat-box" id="chatBox"></div>
+          <div class="chat-input-row">
+            <input id="chatInput" placeholder="说点什么…" maxlength="200" autocomplete="off" onkeydown="if(event.key==='Enter')sendChat()">
+            <button class="btn small" onclick="sendChat()">发送</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="panel-title">邀请好友</div>
+          <div class="invite-box">
+            <input id="inviteUrl" readonly onclick="this.select()">
+            <button class="btn small" onclick="copyInvite()">复制</button>
+          </div>
+          <div class="hint hidden mt" id="fileHint">当前是本地文件模式，邀请链接只能在本机打开。<br>如需发给朋友异地一起看，请把整个文件夹部署到网页上（如 GitHub Pages / 公司内网 / 对象存储托管），再把部署后的网址发给朋友。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>视频来自B站官方播放器 · 房间同步、语音与聊天为浏览器点对点直连，不经任何服务器<br>建议使用 Chrome / Edge 浏览器；语音需 HTTPS 或 localhost 环境</footer>
+
+<div class="mask hidden" id="welcomeModal">
+  <div class="modal">
+    <h3 id="welcomeTitle">加入观影房间</h3>
+    <p id="welcomeDesc">你被邀请一起看视频，请输入昵称进入房间。</p>
+    <input id="modalNick" class="url-input" placeholder="你的昵称（如：小红）" maxlength="12" autocomplete="off">
+    <button class="btn" onclick="joinRoomConfirm()">进入房间</button>
+  </div>
+</div>
+
+<div class="notice" id="notice"></div>
+
+<script src="peerjs.min.js" onerror="loadPeerCDN()"></script>
+<script>
+'use strict';
+/* ================= 工具 ================= */
+const $ = id => document.getElementById(id);
+const fmt = n => {
+  n = Math.max(0, Math.floor(n));
+  const h = Math.floor(n/3600), m = Math.floor(n%3600/60), s = n%60;
+  const pad = x => String(x).padStart(2,'0');
+  return (h>0? pad(h)+':' : '') + pad(m) + ':' + pad(s);
+};
+const parseTime = s => {
+  s = String(s).trim();
+  let m = s.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+  if(m) return +m[1]*3600 + +m[2]*60 + +m[3];
+  m = s.match(/^(\d{1,3}):(\d{1,2})$/);
+  if(m) return +m[1]*60 + +m[2];
+  const n = parseFloat(s);
+  if(!isNaN(n)) return Math.round(n);
+  return null;
+};
+const escapeHtml = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toast = (msg, ms) => {
+  const n = $('notice'); n.textContent = msg; n.classList.add('show');
+  clearTimeout(n._t); n._t = setTimeout(()=>n.classList.remove('show'), ms||2600);
+};
+
+/* ================= 状态 ================= */
+const S = {
+  bvid:null, page:1, host:false,
+  roomId:null, myName:null, peerId:null, hostPeerId:null,
+  curT:0, lastPlaying:false,
+  perm:false,          // 主持人：是否允许成员控制
+  canControl:false,    // 我（成员）是否有控制权
+  micOn:false,         // 我是否开麦
+  memberMic:{},        // 名字 -> 是否开麦
+  peer:null, conn:null,
+  members:[]
+};
+const ROOM_PREFIX = 'yk-sync-';
+
+/* ================= 链接解析 ================= */
+function parseBiliLink(str){
+  str = (str||'').trim();
+  let bvid = null, page = 1, isShort = false;
+  const b = str.match(/BV[0-9A-Za-z]{10}/);
+  if(b) bvid = b[0];
+  if(/^BV[0-9A-Za-z]{10}$/.test(str)) bvid = str;
+  const p = str.match(/[?&]p=(\d+)/);
+  if(p) page = Math.max(1, parseInt(p[1],10)||1);
+  if(/b23\.tv/i.test(str)) isShort = true;
+  return {bvid, page, isShort};
+}
+async function fetchVideoInfo(bvid){
+  try{
+    const r = await fetch('https://api.bilibili.com/x/web-interface/view?bvid='+bvid, {mode:'cors'});
+    const j = await r.json();
+    if(j && j.code===0 && j.data) return {title:j.data.title, owner:(j.data.owner||{}).name, pic:j.data.pic||'', pages:(j.data.pages||[]).length};
+  }catch(e){}
+  return null;
+}
+
+/* ================= 首页 ================= */
+function parseAndShow(){
+  const input = $('urlInput').value;
+  const msg = $('parseMsg');
+  msg.classList.remove('hidden');
+  if(!input.trim()){ msg.innerHTML='<span class="alert">请先粘贴 B站视频链接</span>'; return; }
+  const r = parseBiliLink(input);
+  if(!r.bvid){
+    msg.innerHTML = '<span class="alert">没识别出有效的 BV 号。请粘贴类似 <b>BV1xxxx</b> 或完整链接。<br>如果粘贴的是 b23.tv 短链，请先在浏览器里打开它，把跳转后的完整地址复制过来。</span>';
+    return;
+  }
+  if(r.isShort){
+    msg.innerHTML = '<span class="alert">检测到 b23.tv 短链：请先点开短链，再复制浏览器地址栏中跳转后的完整链接粘贴过来。</span>';
+    return;
+  }
+  msg.classList.add('hidden');
+  S.bvid = r.bvid; S.page = r.page;
+  showVideoCard(r.bvid, r.page);
+}
+function showVideoCard(bvid, page){
+  $('vidCardWrap').classList.remove('hidden');
+  $('vidCard').innerHTML = '<div class="thumb">▶</div><div class="info"><div class="t">正在获取视频信息…</div></div>';
+  fetchVideoInfo(bvid).then(info => {
+    if(info){
+      $('vidCard').innerHTML = '<div class="thumb">'+(info.pic?'<img src="'+info.pic+'" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">':'▶')+'</div>'+
+        '<div class="info"><div class="t">'+escapeHtml(info.title)+'</div><div class="m">UP主：'+escapeHtml(info.owner)+' · 共 '+info.pages+' 个分P · 当前第 '+page+' 个</div></div>';
+    }else{
+      $('vidCard').innerHTML = '<div class="thumb">▶</div><div class="info"><div class="t">'+escapeHtml(bvid)+'</div><div class="m">视频信息获取失败（浏览器跨域限制），不影响一起看</div></div>';
+    }
+  });
+}
+function pasteClipboard(){
+  if(navigator.clipboard && navigator.clipboard.readText){
+    navigator.clipboard.readText().then(t => { if(t) $('urlInput').value = t; }).catch(()=>toast('无法自动读取剪贴板，请手动粘贴',3000));
+  } else toast('请手动粘贴',2500);
+}
+function createRoom(){
+  const nick = ($('nickInput').value||'').trim();
+  if(!nick){ toast('请先填写昵称'); return; }
+  if(!S.bvid){ toast('请先解析视频'); return; }
+  const roomId = Math.random().toString(36).slice(2,8).toUpperCase();
+  const hash = '#room='+roomId+'&bvid='+S.bvid+'&p='+S.page+'&nick='+encodeURIComponent(nick)+'&host=1';
+  location.hash = hash;   // hashchange 会自动触发 initFromHash
+}
+
+/* ================= 房间初始化 ================= */
+function parseHash(){
+  const h = location.hash.replace(/^#/,'');
+  const o = {};
+  h.split('&').forEach(kv => { const i = kv.indexOf('='); if(i>-1) o[kv.slice(0,i)] = decodeURIComponent(kv.slice(i+1)); });
+  return o;
+}
+function initFromHash(){
+  const o = parseHash();
+  if(!o.room || !o.bvid) return;
+  if(S._started && S.roomId === o.room) return;   // 幂等：同一房间不重复初始化
+  S._started = true;
+  S.roomId = o.room;
+  S.bvid = o.bvid;
+  S.page = Math.max(1, parseInt(o.p,10)||1);
+  S.myName = (o.nick||'').trim();
+  S.host = o.host === '1';
+
+  $('homeView').classList.add('hidden');
+  $('roomView').classList.remove('hidden');
+  $('headerRoom').classList.remove('hidden');
+  $('roomIdText').textContent = S.roomId;
+  $('roleTag').textContent = S.host ? '主持人' : '成员';
+  checkVoiceEnv();
+
+  if(S.host){
+    if(!S.myName) { openWelcome('主持人昵称'); }
+    else startHost();
+  }else{
+    if(!S.myName) openWelcome();
+    else startMember();
+  }
+  showInvite();
+  renderAccess();
+}
+function openWelcome(){
+  $('welcomeModal').classList.remove('hidden');
+  $('modalNick').focus();
+}
+function joinRoomConfirm(){
+  const nick = ($('modalNick').value||'').trim();
+  if(!nick){ toast('请输入昵称'); return; }
+  S.myName = nick;
+  $('welcomeModal').classList.add('hidden');
+  if(S.host) startHost(); else startMember();
+}
+function startHost(){
+  if(S.peer){ try{S.peer.destroy();}catch(e){} S.peer = null; }
+  S.curT = 0; S.lastPlaying = false;
+  $('timerTime').textContent = fmt(S.curT);
+  buildPlayer(0, false);
+  if(!window.Peer){ toast('同步组件加载失败，请刷新重试'); return; }
+  S.peer = new Peer(ROOM_PREFIX + S.roomId);
+  S.peer.on('open', id => { S.peerId = id; toast('房间已创建，把邀请链接发给朋友吧'); setStatus(true); });
+  S.peer.on('connection', conn => {
+    conn.on('open', ()=>{
+      conn.send({t:'init', cur:S.curT, playing:S.lastPlaying, host:S.myName, perm:S.perm, mic:{}, members:S.members.map(m=>m.name)});
+      syncMembers();
+    });
+    conn.on('data', d => onHostData(conn, d));
+    conn.on('close', ()=>{ syncMembers(); cleanupAudioPeer(conn.peer); });
+    conn.on('error', ()=>syncMembers());
+  });
+  S.peer.on('call', call => onHostCall(call));
+  S.peer.on('disconnected', ()=> { setStatus(false); try{S.peer.reconnect();}catch(e){} });
+  S.peer.on('error', err => {
+    if(err && err.type==='unavailable-id'){ toast('房间名冲突，请返回重试'); }
+    else setStatus(false);
+  });
+  S.members = [{id:'me', name:S.myName}];
+  renderMembers();
+  setStatus(true);
+  renderAccess();
+}
+function startMember(){
+  if(S.peer){ try{S.peer.destroy();}catch(e){} S.peer = null; }
+  buildPlayer(0, false);
+  if(!window.Peer){ toast('同步组件加载失败，请刷新重试'); return; }
+  S.peer = new Peer();
+  S.peer.on('open', id => { S.peerId = id; connectToHost(); });
+  S.peer.on('disconnected', ()=>{ setStatus(false); try{S.peer.reconnect();}catch(e){} });
+  S.peer.on('error', ()=>{ setStatus(false); });
+}
+function connectToHost(){
+  const conn = S.peer.connect(peerPrefix(), {reliable:true});
+  conn.on('open', ()=>{
+    conn.send({t:'hello', name:S.myName, mic:S.mic});
+    S.conn = conn;
+    setStatus(true);
+    addChat('system','已加入房间，等待主持人同步…');
+    if(S.mic) tryEnableMic();
+  });
+  conn.on('data', d => onMemberData(d));
+  conn.on('close', ()=>{ setStatus(false); S.conn = null; scheduleRetry(); });
+  conn.on('error', ()=>{ setStatus(false); scheduleRetry(); });
+}
+let retryTimer = null;
+function scheduleRetry(){
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(()=>{
+    if(S.peer && S.peer.open && !(S.conn && S.conn.open)){
+      addChat('system','正在重新连接主持人…');
+      connectToHost();
+    }
+  }, 5000);
+}
+function peerPrefix(){ return ROOM_PREFIX + S.roomId; }
+
+/* ================= 主持人收消息 ================= */
+function onHostData(conn, d){
+  if(!d || typeof d !== 'object') return;
+  if(d.t === 'hello'){
+    const name = String(d.name||'朋友').slice(0,12);
+    S.members = S.members.filter(m=>m.id!==conn.peer);
+    S.members.push({id:conn.peer, name, mic:!!d.mic});
+    S.memberMic[name] = !!d.mic;
+    broadcastState();
+    syncMembers();
+  } else if(d.t === 'chat'){
+    broadcast({t:'chat', name:d.name||'朋友', text:d.text});
+  } else if(d.t === 'ctrl'){
+    // 协管操作
+    applyControl(d.cmd, d.time, d.name||'协管');
+  } else if(d.t === 'mic'){
+    const name = S.members.find(m=>m.id===conn.peer);
+    if(name) S.memberMic[name.name] = !!d.on;
+    broadcast({t:'mic', list:S.memberMic});
+    renderMembers();
+  }
+}
+function syncMembers(){
+  S.members = S.members.filter(m => m.id==='me' || isConnected(m.id));
+  S.members.forEach(m => { if(m.id!=='me') m.online = isConnected(m.id); });
+  renderMembers();
+  broadcastState();
+}
+function isConnected(peerId){
+  try{ const c = S.peer.connections[peerId]; return c && c.some(x=>x.open); }catch(e){ return false; }
+}
+function broadcastState(){
+  const msg = {t:'state', cur:S.curT, playing:S.lastPlaying, host:S.myName, perm:S.perm, mic:S.memberMic, members:S.members.map(m=>m.name)};
+  for(const k in S.peer.connections){
+    const arr = S.peer.connections[k];
+    arr.forEach(c => { try{ if(c.open) c.send(msg); }catch(e){} });
+  }
+}
+function broadcast(msg){
+  for(const k in S.peer.connections){
+    const arr = S.peer.connections[k];
+    arr.forEach(c => { try{ if(c.open) c.send(msg); }catch(e){} });
+  }
+}
+
+/* ================= 成员收消息 ================= */
+function onMemberData(d){
+  if(!d || typeof d !== 'object') return;
+  if(d.t === 'init'){
+    applyState(d, true);
+  } else if(d.t === 'state'){
+    applyState(d, false);
+  } else if(d.t === 'play'){
+    S.curT = d.time||0; S.lastPlaying = true;
+    $('timerTime').textContent = fmt(S.curT);
+    $('playState').textContent = '▶ '+(d.by||'主持人')+'：开播 '+fmt(S.curT);
+    buildPlayer(S.curT, true);
+  } else if(d.t === 'pause'){
+    S.curT = d.time||0; S.lastPlaying = false;
+    $('timerTime').textContent = fmt(S.curT);
+    $('playState').textContent = '⏸ '+(d.by||'主持人')+'：暂停于 '+fmt(S.curT);
+    buildPlayer(S.curT, false);
+  } else if(d.t === 'perm'){
+    S.canControl = !!d.can;
+    renderAccess();
+    addChat('system', S.canControl ? '主持人已开放「成员控制」，你可以同步大家了' : '主持人已收回成员控制权限');
+  } else if(d.t === 'mic'){
+    if(d.list && typeof d.list==='object'){ S.memberMic = d.list; renderMembers(); }
+  } else if(d.t === 'chat'){
+    addChat(d.name, d.text, false);
+  }
+}
+function applyState(d, first){
+  S.curT = d.cur||0;
+  S.lastPlaying = !!d.playing;
+  S.hostName = d.host||'主持人';
+  S.perm = !!d.perm;
+  S.members = (d.members||[]).map(n=>({name:n}));
+  S.memberMic = (d.mic && typeof d.mic==='object') ? d.mic : {};
+  renderMembers();
+  renderAccess();
+  $('timerTime').textContent = fmt(S.curT);
+  $('playState').textContent = S.lastPlaying ? '▶ 主持人已开播' : '⏸ 已暂停';
+  if(first && !S._synced){ S._synced = true; buildPlayer(S.curT, S.lastPlaying); }
+}
+
+/* ================= 控制（主持人+协管） ================= */
+function canControl(){ return S.host || S.canControl; }
+function renderAccess(){
+  const can = canControl();
+  $('controlsArea').classList.toggle('hidden', !can);
+  $('hostPanel').classList.toggle('hidden', !S.host);
+  $('memberPanel').classList.toggle('hidden', can);
+  $('btnPerm').textContent = S.perm ? '🔒 关闭成员控制' : '🔓 允许成员控制';
+}
+function togglePerm(){
+  if(!S.host) return;
+  S.perm = !S.perm;
+  broadcast({t:'perm', can:S.perm});
+  renderAccess();
+  toast(S.perm ? '已开放成员控制权限' : '已关闭成员控制权限');
+}
+function stepControl(delta){ nudgeTime(delta); }
+function nudgeTime(delta){
+  if(!canControl()) return;
+  S.curT = Math.max(0, S.curT + delta);
+  $('timerTime').textContent = fmt(S.curT);
+  $('playState').textContent = '已定位到 '+fmt(S.curT)+'（等待播放/暂停）';
+}
+function seekToInput(){
+  if(!canControl()) return;
+  const v = parseTime($('seekInput').value);
+  if(v==null){ toast('时间格式：如 12:34 或 1:02:03'); return; }
+  S.curT = v;
+  $('timerTime').textContent = fmt(v);
+  $('playState').textContent = '已定位到 '+fmt(v)+'（等待播放/暂停）';
+  $('seekInput').value = '';
+}
+function ctrlPlay(){
+  if(!canControl()) return;
+  applyControl('play', S.curT, S.myName);
+}
+function ctrlPause(){
+  if(!canControl()) return;
+  applyControl('pause', S.curT, S.myName);
+}
+function applyControl(cmd, time, by){
+  S.curT = Math.max(0, time||0);
+  $('timerTime').textContent = fmt(S.curT);
+  if(cmd==='play'){
+    S.lastPlaying = true;
+    $('playState').textContent = '▶ '+by+'：从 '+fmt(S.curT)+' 开始播放';
+    buildPlayer(S.curT, true);
+  }else{
+    S.lastPlaying = false;
+    $('playState').textContent = '⏸ '+by+'：暂停于 '+fmt(S.curT);
+    buildPlayer(S.curT, false);
+  }
+  if(S.host){
+    broadcast({t:cmd, time:S.curT, by:by});
+  }else if(S.conn && S.conn.open){
+    S.conn.send({t:'ctrl', cmd, time:S.curT, name:S.myName});
+  }
+}
+
+/* ================= 语音（WebRTC，主持人混音转发） ================= */
+const AUD = {
+  ctx:null, mic:null,
+  remotes:{},        // memberPeerId -> MediaStream（成员的麦流）
+  mixers:{},         // targetId -> {dest, srcs:[]}   targetId: 'host' 或 memberPeerId
+  callByPeer:{},     // memberPeerId -> MediaConnection（主持人侧）
+  myCall:null,       // 成员侧发起的 call
+  speakNode:null     // 主持人回放节点
+};
+function checkVoiceEnv(){
+  const ok = !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia;
+  $('audioEnvTag').textContent = ok ? '可用' : '不可用';
+  $('btnAudio').disabled = !ok;
+  if(!ok){
+    $('audioHint').innerHTML = '当前环境无法使用麦克风。<br>语音需要 <b>HTTPS 或 localhost</b> 环境（本地双击文件打开时不可用）。部署到网页后即可使用。';
+  }
+}
+function ensureCtx(){
+  if(!AUD.ctx){ AUD.ctx = new (window.AudioContext||window.webkitAudioContext)(); }
+  if(AUD.ctx.state==='suspended') AUD.ctx.resume();
+}
+function audioOK(){ return !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia; }
+async function toggleMic(){
+  if(S.mic){ closeMic(); return; }
+  await openMic();
+}
+async function openMic(){
+  if(!audioOK()){ toast('当前环境无法使用麦克风（需HTTPS）'); return; }
+  if(S.mic) return;
+  try{
+    ensureCtx();
+    const st = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+    AUD.mic = st;
+    S.mic = true;
+    $('btnAudio').textContent = '🔇 关闭语音';
+    $('btnAudio').className = 'btn red';
+    $('audioHint').innerHTML = '<span class="ok-text">语音已开启</span> · 现在大家能听到你说话了';
+    if(S.host){
+      rebuildAudioRoutes();
+    }else if(S.conn && S.conn.open){
+      tryEnableMic();
+    }else{
+      toast('加入房间后才能通话，已为你保留麦克风，连上后自动开麦');
+    }
+    broadcastMicState();
+  }catch(e){
+    S.mic = false;
+    toast('无法获取麦克风（可能被拒绝或没有设备）');
+  }
+}
+async function tryEnableMic(){
+  if(S.mic && AUD.mic && S.peer && S.peer.open){
+    try{
+      ensureCtx();
+      const call = S.peer.call(peerPrefix(), AUD.mic);
+      AUD.myCall = call;
+      call.on('stream', remote => {
+        ensureCtx();
+        if(AUD.speakNode) try{ AUD.speakNode.disconnect(); }catch(e){}
+        AUD.speakNode = AUD.ctx.createMediaStreamSource(remote);
+        AUD.speakNode.connect(AUD.ctx.destination);
+      });
+      call.on('close', ()=>{ if(AUD.speakNode){ try{AUD.speakNode.disconnect();}catch(e){} AUD.speakNode=null; } });
+      call.on('error', ()=>{});
+    }catch(e){ toast('语音连接失败'); }
+  }
+}
+function closeMic(){
+  try{ AUD.mic && AUD.mic.getTracks().forEach(t=>t.stop()); }catch(e){}
+  AUD.mic = null;
+  S.mic = false;
+  $('btnAudio').textContent = '🎤 开麦语音';
+  $('btnAudio').className = 'btn green';
+  $('audioHint').innerHTML = '点击上方「开麦」开始语音通话';
+  if(S.host){ rebuildAudioRoutes(); }
+  else if(AUD.myCall){ try{ AUD.myCall.close(); }catch(e){} AUD.myCall = null; }
+  broadcastMicState();
+}
+function broadcastMicState(){
+  if(S.host){
+    const list = {};
+    S.members.forEach(m => { if(m.id!=='me') list[m.name] = !!S.memberMic[m.name]; });
+    if(S.myName) list[S.myName] = S.mic;
+    S.memberMic = list;
+    broadcast({t:'mic', list:list});
+    renderMembers();
+  }else if(S.conn && S.conn.open){
+    S.conn.send({t:'mic', on:S.mic});
+  }
+}
+/* 主持人侧：收到成员语音 */
+function onHostCall(call){
+  const pid = call.peer;
+  AUD.callByPeer[pid] = call;
+  call.answer(); // 先应答（稍后替换发送轨道为混音流）
+  call.on('stream', s => {
+    AUD.remotes[pid] = s;
+    rebuildAudioRoutes();
+  });
+  call.on('close', ()=>{ cleanupAudioPeer(pid); });
+  call.on('error', ()=>{});
+}
+function cleanupAudioPeer(pid){
+  delete AUD.remotes[pid];
+  delete AUD.callByPeer[pid];
+  rebuildAudioRoutes();
+}
+function createMixer(id){
+  if(AUD.mixers[id]) return AUD.mixers[id];
+  const dest = AUD.ctx.createMediaStreamDestination();
+  const mixer = {dest:dest, srcs:[]};
+  AUD.mixers[id] = mixer;
+  return mixer;
+}
+function destroyMixer(id){
+  const m = AUD.mixers[id];
+  if(!m) return;
+  m.srcs.forEach(s=>{ try{s.disconnect();}catch(e){} });
+  delete AUD.mixers[id];
+}
+function route(stream, mixer){
+  try{
+    const src = AUD.ctx.createMediaStreamSource(stream);
+    src.connect(mixer.dest);
+    mixer.srcs.push(src);
+  }catch(e){}
+}
+/* 全量重建路由：给每个目标（host和各成员）混入"除自己外所有人"的声音 */
+function rebuildAudioRoutes(){
+  if(!AUD.ctx) return;
+  for(const id in AUD.mixers){ destroyMixer(id); }
+  AUD.mixers = {};
+  const targets = ['host', ...Object.keys(AUD.remotes)];
+  targets.forEach(id => createMixer(id));
+  // 主持人麦克风 → 所有成员 mixer
+  if(AUD.mic){
+    targets.forEach(id => { if(id!=='host') route(AUD.mic, AUD.mixers[id]); });
+  }
+  // 每个成员的流 → host mixer + 其他成员 mixer（不含自己）
+  for(const pid in AUD.remotes){
+    targets.forEach(id => { if(id!==pid) route(AUD.remotes[pid], AUD.mixers[id]); });
+  }
+  // 主持人回放：host mixer -> 扬声器
+  try{
+    if(AUD.hostPlay){ AUD.hostPlay.disconnect(); }
+    AUD.hostPlay = AUD.ctx.createMediaStreamSource(AUD.mixers['host'].dest.stream);
+    AUD.hostPlay.connect(AUD.ctx.destination);
+  }catch(e){}
+  // 每个成员接收：把自己对应的 mixer 输出替换到对应 call 的发送轨道
+  for(const pid in AUD.callByPeer){
+    attachMixerToCall(pid);
+  }
+}
+function attachMixerToCall(pid){
+  try{
+    const mixer = AUD.mixers[pid];
+    const call = AUD.callByPeer[pid];
+    if(!mixer || !call) return;
+    const track = mixer.dest.stream.getAudioTracks()[0];
+    if(!track) return;
+    const pc = call.peerConnection;
+    if(!pc || !pc.getSenders) return;
+    const sender = pc.getSenders().find(s => s.track && s.track.kind==='audio');
+    if(sender) sender.replaceTrack(track).catch(()=>{});
+  }catch(e){}
+}
+
+/* ================= 播放器 ================= */
+function buildPlayer(t, autoplay){
+  $('playerLoading').classList.remove('hidden');
+  const src = 'https://player.bilibili.com/player.html?bvid='+S.bvid+'&page='+S.page+
+    '&high_quality=1&autoplay='+(autoplay?1:0)+'&danmaku=0&t='+Math.max(0,Math.floor(t));
+  const f = $('player');
+  f.src = src;
+  f.onload = ()=> $('playerLoading').classList.add('hidden');
+  setTimeout(()=>$('playerLoading').classList.add('hidden'), 12000);
+}
+
+/* ================= 聊天 ================= */
+function addChat(name, text, isSys){
+  const box = $('chatBox');
+  const div = document.createElement('div');
+  div.className = 'chat-msg';
+  if(isSys){ div.innerHTML = '<span class="sys">'+escapeHtml(text)+'</span>'; }
+  else { div.innerHTML = '<span class="who">'+escapeHtml(name)+'</span>'+escapeHtml(text); }
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+function sendChat(){
+  const v = ($('chatInput').value||'').trim();
+  if(!v) return;
+  $('chatInput').value = '';
+  if(S.host){
+    addChat(S.myName, v);
+    broadcast({t:'chat', name:S.myName, text:v});
+  } else if(S.conn && S.conn.open){
+    S.conn.send({t:'chat', name:S.myName, text:v});
+  } else {
+    toast('尚未连接主持人，暂时不能聊天');
+  }
+}
+
+/* ================= 成员 ================= */
+function renderMembers(){
+  const box = $('membersBox');
+  box.innerHTML = '';
+  let list = S.members || [];
+  if(S.host){
+    // 主持人的列表结构 {id,name,mic}
+    list = S.members;
+  }else{
+    // 成员端从广播收到的是名字数组
+  }
+  if(!list.length){ box.innerHTML = '<span style="font-size:12px;color:#9ca3af">暂无成员</span>'; }
+  const shown = {};
+  list.forEach(m => {
+    const name = m.name || m || '朋友';
+    if(shown[name]) return; shown[name] = true;
+    const c = document.createElement('div');
+    c.className = 'member-chip';
+    const micOn = S.host ? !!m.mic : !!S.memberMic[name];
+    const isMe = name===S.myName;
+    c.innerHTML = '<span class="ava">'+escapeHtml(name[0])+'</span>'+escapeHtml(name)+
+      (isMe?' <span class="me-tag">(我)</span>':'')+
+      (micOn?' <span class="mic-tag">🎤 语音中</span>':'');
+    box.appendChild(c);
+  });
+  $('memberCount').textContent = list.length+'人';
+  $('memberCountText').textContent = list.length+'人';
+}
+
+/* ================= 邀请 ================= */
+function showInvite(){
+  const base = location.origin + location.pathname;
+  const link = base + '#room='+S.roomId+'&bvid='+S.bvid+'&p='+S.page;
+  S.inviteLink = link;
+  $('inviteUrl').value = link;
+  if(location.protocol === 'file:'){
+    $('fileHint').classList.remove('hidden');
+  } else {
+    $('fileHint').classList.add('hidden');
+  }
+}
+function copyInvite(){
+  const input = $('inviteUrl');
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(input.value).then(()=>toast('邀请链接已复制，发给朋友吧'), ()=>{});
+  }
+  input.select();
+  document.execCommand('copy');
+  toast('邀请链接已复制');
+}
+function setStatus(ok){
+  $('statusDot').className = 'status-dot' + (ok?' on':'');
+}
+function goHome(){
+  if(S.peer){ try{S.peer.destroy();}catch(e){} }
+  location.hash = '';
+  location.reload();
+}
+function loadPeerCDN(){
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+  s.onload = ()=>toast('同步组件已从备用地址加载');
+  s.onerror = ()=>toast('同步组件加载失败：请检查网络后刷新', 4000);
+  document.head.appendChild(s);
+}
+
+/* ================= 启动 ================= */
+window.addEventListener('hashchange', ()=>{ if(location.hash) initFromHash(); else location.reload(); });
+(function init(){
+  if(location.hash && location.hash.length>4){
+    initFromHash();
+  }
+})();
+</script>
+</body>
+</html>
