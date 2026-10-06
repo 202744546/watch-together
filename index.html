@@ -143,7 +143,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
 <header>
   <div class="header-in">
-    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v2.1</span></div>
+    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v2.2</span></div>
     <div id="headerRoom" class="header-badge hidden">
       <span class="status-dot" id="statusDot"></span>
       房间 <b id="roomIdText"></b>
@@ -355,7 +355,7 @@ const S = {
   members:[]
 };
 const ROOM_PREFIX = 'yk-sync-';
-const APP_VERSION = 'v2.1';
+const APP_VERSION = 'v2.2';
 /* WebRTC 打洞服务器：优先国内 STUN（腾讯/B站/CDNBye），备选 Google STUN + 免费 TURN 兼底 */
 const RTC_CONFIG = {
   iceServers: [
@@ -605,7 +605,7 @@ function onHostData(conn, d){
   } else if(d.t === 'vctrl'){
     // 协管操作本地视频：应用到自己 video 并广播全员
     applyLocalCmd(d.cmd, d.time, d.name||'协管');
-    broadcast({t:'v'+d.cmd, time:Math.max(0,d.time||0), by:d.name||'协管'});
+    broadcast({t:'v'+d.cmd, time:(d.time==null?null:Math.max(0,d.time||0)), by:d.name||'协管'});
   } else if(d.t === 'fileready'){
     addChat('system', (d.name||'成员')+' 的视频文件已就绪');
   }
@@ -709,7 +709,8 @@ function togglePerm(){
 function stepControl(delta){ nudgeTime(delta); }
 function nudgeTime(delta){
   if(!canControl()) return;
-  if(S.mode==='local' && S.fileReady){
+  if(S.mode==='local'){
+    if(!S.fileReady){ toast(S.streamOn ? '推流模式下暂不支持快进/跳转，可用 播放/暂停' : '请先选择视频文件'); return; }
     const v = $('localVideo');
     v.currentTime = Math.max(0, v.currentTime + delta);
     return;
@@ -722,6 +723,11 @@ function seekToInput(){
   if(!canControl()) return;
   const v0 = parseTime($('seekInput').value);
   if(v0==null){ toast('时间格式：如 12:34 或 1:02:03'); return; }
+  if(S.mode==='local' && !S.fileReady){
+    toast(S.streamOn ? '推流模式下暂不支持跳转，可用 播放/暂停' : '请先选择视频文件');
+    $('seekInput').value = '';
+    return;
+  }
   if(S.mode==='local' && S.fileReady){
     $('localVideo').currentTime = Math.max(0, v0);
   }else{
@@ -734,7 +740,10 @@ function seekToInput(){
 function ctrlPlay(){
   if(!canControl()) return;
   if(S.mode==='local'){
-    if(!S.fileReady){ toast('请先选择视频文件，或等待主持人推流'); return; }
+    if(!S.fileReady){
+      if(S.streamOn){ sendLocalCmd('play', null); return; }   // 推流模式：控制主持人的画面
+      toast('请先选择视频文件，或等待主持人推流'); return;
+    }
     $('localVideo').play().catch(()=>toast('请点画面上的播放键'));
     return;
   }
@@ -743,7 +752,11 @@ function ctrlPlay(){
 function ctrlPause(){
   if(!canControl()) return;
   if(S.mode==='local'){
-    if(!S.fileReady){ toast('请先选择视频文件'); return; }
+    if(!S.fileReady){
+      if(S.streamOn){ sendLocalCmd('pause', null); return; }
+      toast('请先选择视频文件');
+      return;
+    }
     $('localVideo').pause();
     return;
   }
@@ -1095,10 +1108,11 @@ function onLocalUserAction(cmd){
   sendLocalCmd(cmd, $('localVideo').currentTime);
 }
 function sendLocalCmd(cmd, time){
+  const t = (time==null ? null : Math.max(0, time||0));   // null=仅播放/暂停，不指定时间
   if(S.host){
-    broadcast({t:'v'+cmd, time:Math.max(0,time||0), by:S.myName});
+    broadcast({t:'v'+cmd, time:t, by:S.myName});
   }else if(S.conn && S.conn.open){
-    S.conn.send({t:'vctrl', cmd:cmd, time:Math.max(0,time||0), name:S.myName});
+    S.conn.send({t:'vctrl', cmd:cmd, time:t, name:S.myName});
   }
 }
 /* 成员收到 vplay/vpause/vseek 或主持人心跳时应用到自己 video */
@@ -1114,15 +1128,31 @@ function applyLocalCmd(cmd, time, by){
   setTimeout(()=>{ S.applying = false; }, 400);
   $('playState').textContent = (cmd==='play'?'▶ ':cmd==='pause'?'⏸ ':'↪ ')+(by||'')+'：'+fmt(v.currentTime);
 }
-/* 主持人心跳校准（成员对齐用） */
+/* 主持人心跳校准（成员对齐用）：
+   小偏差不硬跳（硬跳=画面反复重载），改用微调播放速率平滑追赶；
+   偏差大才跳转，且 10 秒冷却防"跳转风暴"；缓冲中不对齐 */
 function onVPos(d){
   if(S.host || !S.fileReady || S.streamOn) return;
   const v = $('localVideo');
-  if(Math.abs(v.currentTime - (d.time||0)) > 1.2){
-    S.applying = true; v.currentTime = Math.max(0, d.time||0); setTimeout(()=>{ S.applying=false; }, 400);
-  }
+  // 播放状态即时对齐
   if(d.playing && v.paused){ S.applying = true; const p = v.play(); if(p&&p.catch)p.catch(()=>{}); setTimeout(()=>{ S.applying=false; }, 400); }
   if(!d.playing && !v.paused){ S.applying = true; v.pause(); setTimeout(()=>{ S.applying=false; }, 400); }
+  if(!d.playing){ if(v.playbackRate !== 1){ try{ v.playbackRate = 1; }catch(e){} } return; }
+  if(v.readyState < 3) return;   // 正在缓冲：跳过校准，硬跳只会雪上加霜
+  const drift = v.currentTime - (d.time||0);   // 负数=我落后
+  const abs = Math.abs(drift);
+  if(abs > 6 || (abs > 2.5 && Date.now() - (S._lastAlignAt||0) > 10000)){
+    S.applying = true;
+    try{ v.playbackRate = 1; v.currentTime = Math.max(0, d.time||0); }catch(e){}
+    S._lastAlignAt = Date.now();
+    setTimeout(()=>{ S.applying=false; }, 400);
+  }else if(drift < -1.2){
+    try{ v.playbackRate = 1.05; }catch(e){}   // 落后 1.2~2.5 秒：微加速追赶，画面不重载
+  }else if(drift > 1.2){
+    try{ v.playbackRate = 0.97; }catch(e){}  // 超前：微减速等待
+  }else if(v.playbackRate !== 1){
+    try{ v.playbackRate = 1; }catch(e){}     // 偏差小：恢复正常速率
+  }
 }
 /* ================= 串流（主持人推画面给没文件的朋友） ================= */
 function toggleStream(){
