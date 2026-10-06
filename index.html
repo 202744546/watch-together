@@ -63,6 +63,9 @@ header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.88);backdro
 .alert{color:var(--warn)}
 .ok-text{color:var(--ok)}
 
+.limited-banner{background:#fff7ed;border:1.5px solid #fed7aa;color:#c2410c;font-size:13px;line-height:1.8;border-radius:12px;padding:10px 14px;margin-bottom:14px}
+.limited-banner b{color:#9a3412}
+
 /* 播放器 */
 .stage{position:relative;background:#0b1220;border-radius:var(--radius);overflow:hidden;aspect-ratio:16/9;box-shadow:var(--shadow)}
 .stage iframe{position:absolute;inset:0;width:100%;height:100%;border:none}
@@ -134,7 +137,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
 <header>
   <div class="header-in">
-    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v1.6</span></div>
+    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v1.7</span></div>
     <div id="headerRoom" class="header-badge hidden">
       <span class="status-dot" id="statusDot"></span>
       房间 <b id="roomIdText"></b>
@@ -183,6 +186,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
   <!-- ============ 房间 ============ -->
   <section id="roomView" class="hidden">
+    <div id="limitedBanner" class="limited-banner hidden">⚠️ 当前在微信/QQ内打开：<b>视频无法自动播放</b>——点一下视频中央的 ▶ 按钮手动播放；推荐点右上角「…」→「在浏览器打开」，自动播放和语音都正常</div>
     <div class="stage">
       <div class="player-loading" id="playerLoading"><div class="spin"></div>正在加载 B站播放器…</div>
       <iframe id="player" allowfullscreen allow="autoplay; fullscreen; encrypted-media; microphone" src="about:blank" title="B站播放器"></iframe>
@@ -317,7 +321,7 @@ const S = {
   members:[]
 };
 const ROOM_PREFIX = 'yk-sync-';
-const APP_VERSION = 'v1.6';
+const APP_VERSION = 'v1.7';
 /* WebRTC 打洞服务器：优先国内 STUN（腾讯/B站/CDNBye），备选 Google STUN + 免费 TURN 兼底 */
 const RTC_CONFIG = {
   iceServers: [
@@ -674,6 +678,7 @@ function checkVoiceEnv(){
   $('audioEnvTag').textContent = limited ? '受限' : (ok ? '可用' : '不可用');
   $('btnAudio').disabled = !ok;
   if(limited){
+    $('limitedBanner').classList.remove('hidden');
     $('audioHint').innerHTML = '<span class="alert">当前是微信/QQ内置浏览器，语音可能无法使用。</span><br>请点右上角「…」→「在浏览器打开」，用 <b>Safari（iPhone）或 Chrome/Edge（安卓）</b> 访问本页，语音即可正常使用。';
   } else if(!ok){
     $('audioHint').innerHTML = '<span class="alert">当前环境无法使用麦克风。</span><br>语音需要 <b>HTTPS</b> 环境（本地双击文件打开时不可用）。';
@@ -894,16 +899,18 @@ function currentMemberList(){
 /* ================= 播放器 ================= */
 function buildPlayer(t, autoplay){
   $('playerLoading').classList.remove('hidden');
-  // 手机浏览器会拦截有声自动播放：用静音自动播放（手机浏览器允许），用户点喇叭开声
+  // 手机端：B站移动版播放器需要 autoplayMode=muted 才会走"静音自动播放"分支；桌面版忽略该参数
   let mutedParam = '';
-  if(autoplay && isMobileBrowser()) mutedParam = '&muted=1';
+  if(autoplay && isMobileBrowser()) mutedParam = '&muted=1&autoplayMode=muted';
   const src = 'https://player.bilibili.com/player.html?bvid='+S.bvid+'&page='+S.page+
     '&high_quality=1&autoplay='+(autoplay?1:0)+'&danmaku=0'+mutedParam+'&t='+Math.max(0,Math.floor(t));
   const f = $('player');
   f.src = src;
   f.onload = ()=> $('playerLoading').classList.add('hidden');
   setTimeout(()=>$('playerLoading').classList.add('hidden'), 12000);
-  if(autoplay && isMobileBrowser()){
+  if(autoplay && isLimitedBrowser()){
+    toast('微信/QQ内无法自动播放：点视频中央的播放按钮；建议右上角…在浏览器打开', 6000);
+  } else if(autoplay && isMobileBrowser()){
     toast('手机默认静音自动播放：点视频右下角喇叭图标可开声音；若画面没动，请点一下视频封面', 6000);
   }
 }
