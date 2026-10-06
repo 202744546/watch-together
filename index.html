@@ -143,7 +143,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
 <header>
   <div class="header-in">
-    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v2.0</span></div>
+    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v2.1</span></div>
     <div id="headerRoom" class="header-badge hidden">
       <span class="status-dot" id="statusDot"></span>
       房间 <b id="roomIdText"></b>
@@ -355,7 +355,7 @@ const S = {
   members:[]
 };
 const ROOM_PREFIX = 'yk-sync-';
-const APP_VERSION = 'v2.0';
+const APP_VERSION = 'v2.1';
 /* WebRTC 打洞服务器：优先国内 STUN（腾讯/B站/CDNBye），备选 Google STUN + 免费 TURN 兼底 */
 const RTC_CONFIG = {
   iceServers: [
@@ -578,8 +578,16 @@ function peerPrefix(){ return ROOM_PREFIX + S.roomId; }
 /* ================= 主持人收消息 ================= */
 function onHostData(conn, d){
   if(!d || typeof d !== 'object') return;
+  if(conn && conn.peer){
+    S.lastSeen = S.lastSeen || {}; S.lastSeen[conn.peer] = Date.now();   // 任何消息都算活跃
+    if(d.t !== 'hello' && !S.members.some(x=>x.id===conn.peer)){
+      S.members.push({id:conn.peer, name:(S.memberNames||{})[conn.peer]||'朋友'});   // 被心跳清掉但实际在线的成员自动回归
+      syncMembers();
+    }
+  }
   if(d.t === 'hello'){
     const name = String(d.name||'朋友').slice(0,12);
+    S.memberNames = S.memberNames || {}; S.memberNames[conn.peer] = name;
     S.members = S.members.filter(m=>m.id!==conn.peer);
     S.members.push({id:conn.peer, name, mic:!!d.mic});
     broadcastState();
@@ -603,7 +611,9 @@ function onHostData(conn, d){
   }
 }
 function syncMembers(){
-  S.members = S.members.filter(m => m.id==='me' || isConnected(m.id));
+  const now = Date.now();
+  // 连接可能长时间"假活"（手机锁屏/杀进程/断网不触发 close），结合 40 秒活跃窗口判断真实在线
+  S.members = S.members.filter(m => m.id==='me' || (isConnected(m.id) && now - ((S.lastSeen||{})[m.id]||0) < 40000));
   S.members.forEach(m => { if(m.id!=='me') m.online = isConnected(m.id); });
   renderMembers();
   broadcastState();
@@ -611,7 +621,8 @@ function syncMembers(){
   if(S.streamOn){ voiceTargetPeers().forEach(m => ensureStreamCall(m.peerId)); }
 }
 function isConnected(peerId){
-  try{ const c = S.peer.connections[peerId]; return c && c.some(x=>x.open); }catch(e){ return false; }
+  // 只认数据连接：语音/推流的媒体连接断开有延迟，会把已离线成员误判为在线
+  try{ const c = S.peer.connections[peerId]; return !!(c && c.some(x => x.type !== 'media' && x.open)); }catch(e){ return false; }
 }
 function broadcastState(){
   const msg = {t:'state', cur:S.curT, playing:S.lastPlaying, host:S.myName, perm:S.perm, members:currentMemberList()};
@@ -654,6 +665,8 @@ function onMemberData(d){
     onVPos(d);
   } else if(d.t === 'streammode'){
     onStreamMode(!!d.on);
+  } else if(d.t === 'ping'){
+    try{ if(S.conn && S.conn.open) S.conn.send({t:'pong'}); }catch(e){}   // 心跳应答：告诉主持人我还在线
   } else if(d.t === 'chat'){
     addChat(d.name, d.text, false);
   }
@@ -669,7 +682,7 @@ function applyState(d, first){
   renderMembers();
   renderAccess();
   $('timerTime').textContent = fmt(S.curT);
-  $('playState').textContent = S.lastPlaying ? '▶ 主持人已开播' : '⏸ 已暂停';
+  if(!S.streamOn) $('playState').textContent = S.lastPlaying ? '▶ 主持人已开播' : '⏸ 已暂停';   // 推流中不改写状态文字
   if(first && !S._synced){
     S._synced = true;
     if(S.mode!=='local') buildPlayer(S.curT, S.lastPlaying);   // 本地模式不加载B站iframe
@@ -720,7 +733,8 @@ function seekToInput(){
 }
 function ctrlPlay(){
   if(!canControl()) return;
-  if(S.mode==='local' && S.fileReady){
+  if(S.mode==='local'){
+    if(!S.fileReady){ toast('请先选择视频文件，或等待主持人推流'); return; }
     $('localVideo').play().catch(()=>toast('请点画面上的播放键'));
     return;
   }
@@ -728,13 +742,22 @@ function ctrlPlay(){
 }
 function ctrlPause(){
   if(!canControl()) return;
-  if(S.mode==='local' && S.fileReady){
+  if(S.mode==='local'){
+    if(!S.fileReady){ toast('请先选择视频文件'); return; }
     $('localVideo').pause();
     return;
   }
   applyControl('pause', S.curT, S.myName);
 }
 function applyControl(cmd, time, by){
+  if(S.mode==='local'){
+    // 本地模式绝不加载B站iframe（防 bvid=null 空播放器）
+    const v = $('localVideo');
+    if(!S.fileReady){ toast('本地模式：请先选择视频文件，或等主持人开推流'); return; }
+    if(cmd==='play'){ const p = v.play(); if(p && p.catch) p.catch(()=>toast('请点画面上的播放键')); }
+    else { v.pause(); }
+    return;
+  }
   S.curT = Math.max(0, time||0);
   $('timerTime').textContent = fmt(S.curT);
   if(cmd==='play'){
@@ -888,6 +911,7 @@ function onIncomingCall(call){
     try{ if(AUD.streamCallIn) AUD.streamCallIn.close(); }catch(e){}
     AUD.streamCallIn = call;
     try{ call.answer(); }catch(e){}
+    if(!S.host && !S.streamOn) onStreamMode(true);   // 成员中途加入/重连时恢复推流模式（否则画面元素隐藏看不见）
     call.on('stream', s => {
       const sv = $('streamVideo');
       sv.srcObject = s;
@@ -1094,7 +1118,7 @@ function applyLocalCmd(cmd, time, by){
 function onVPos(d){
   if(S.host || !S.fileReady || S.streamOn) return;
   const v = $('localVideo');
-  if(Math.abs(v.currentTime - (d.time||0)) > 2){
+  if(Math.abs(v.currentTime - (d.time||0)) > 1.2){
     S.applying = true; v.currentTime = Math.max(0, d.time||0); setTimeout(()=>{ S.applying=false; }, 400);
   }
   if(d.playing && v.paused){ S.applying = true; const p = v.play(); if(p&&p.catch)p.catch(()=>{}); setTimeout(()=>{ S.applying=false; }, 400); }
@@ -1105,19 +1129,39 @@ function toggleStream(){
   if(S.mode!=='local' || !S.host || !S.fileReady) return;
   if(S.streamOn){ stopStreaming(); } else { startStreaming(); }
 }
+/* 等待视频真正解码出画面（readyState>=2），最多等 5 秒 */
+function waitVideoReady(v){
+  return new Promise(res=>{
+    if(v.readyState >= 2) return res();
+    const done = ()=>{ v.removeEventListener('loadeddata', done); v.removeEventListener('canplay', done); res(); };
+    v.addEventListener('loadeddata', done);
+    v.addEventListener('canplay', done);
+    setTimeout(done, 5000);
+  });
+}
 function startStreaming(){
+  if(S.streamOn) return;
   const v = $('localVideo');
-  try{
-    S._streamSrc = v.captureStream ? v.captureStream() : (v.mozCaptureStream ? v.mozCaptureStream() : null);
-  }catch(e){ S._streamSrc = null; }
-  if(!S._streamSrc || !S._streamSrc.getVideoTracks || !S._streamSrc.getVideoTracks().length){
-    toast('当前浏览器不支持画面采集推流'); return;
+  const seq = (S._streamSeq = (S._streamSeq||0)+1);   // 防止连点/取消后仍执行
+  if(v.paused){                                       // 暂停状态下采集不到画面帧
+    const p = v.play();
+    if(p && p.catch) p.catch(()=>{ toast('自动播放被拦截：请点一下播放键再开推流'); });
   }
-  S.streamOn = true;
-  $('btnStream').textContent = '⏹ 停止推流';
-  toast('推流已开启：房间成员将看到你的画面（含视频声音）');
-  broadcast({t:'streammode', on:true});
-  voiceTargetPeers().forEach(m => ensureStreamCall(m.peerId));
+  waitVideoReady(v).then(()=>{
+    if(S._streamSeq !== seq || S.streamOn) return;
+    if(v.readyState < 2){ toast('视频还没加载出画面，请稍后再点推流'); return; }
+    try{
+      S._streamSrc = v.captureStream ? v.captureStream() : (v.mozCaptureStream ? v.mozCaptureStream() : null);
+    }catch(e){ S._streamSrc = null; }
+    if(!S._streamSrc || !S._streamSrc.getVideoTracks || !S._streamSrc.getVideoTracks().length){
+      toast('当前浏览器不支持画面采集推流'); return;
+    }
+    S.streamOn = true;
+    $('btnStream').textContent = '⏹ 停止推流';
+    toast('推流已开启：请保持本页在前台，切后台画面会暂停（1-2 秒延迟属正常）', 6000);
+    broadcast({t:'streammode', on:true});
+    voiceTargetPeers().forEach(m => ensureStreamCall(m.peerId));
+  });
 }
 function ensureStreamCall(pid){
   if(!S.streamOn || !S._streamSrc || !S.peer || !S.peer.open) return;
@@ -1125,9 +1169,28 @@ function ensureStreamCall(pid){
   try{
     const call = S.peer.call(pid, S._streamSrc, {metadata:{type:'stream'}});
     AUD.streamCalls[pid] = call;
+    tuneVideoBitrate(call);
     call.on('close', ()=>{ delete AUD.streamCalls[pid]; });
     call.on('error', ()=>{ delete AUD.streamCalls[pid]; });
   }catch(e){}
+}
+/* 推流码率上限 3.5Mbps（家用上行普遍 10Mbps+，留足余量防卡顿） */
+function tuneVideoBitrate(call){
+  const apply = ()=>{
+    try{
+      const pc = call.peerConnection;
+      if(!pc || !pc.getSenders) return;
+      pc.getSenders().forEach(s=>{
+        if(!s.track || s.track.kind !== 'video') return;
+        const p = s.getParameters ? s.getParameters() : null;
+        if(!p) return;
+        if(!p.encodings || !p.encodings.length) p.encodings = [{}];
+        p.encodings[0].maxBitrate = 3500000;
+        try{ s.setParameters(p); }catch(e){}
+      });
+    }catch(e){}
+  };
+  apply(); setTimeout(apply, 800); setTimeout(apply, 2500);
 }
 function stopStreaming(){
   S.streamOn = false;
@@ -1270,15 +1333,15 @@ window.addEventListener('hashchange', ()=>{ if(location.hash) initFromHash(); el
   document.addEventListener('pointerdown', handler, true);
   document.addEventListener('touchstart', handler, {passive:true, capture:true});
 })();
-// 主持人端定期清理已离线的成员（手机锁屏/杀进程不会触发 close 事件）
-setInterval(()=>{ if(S.host && S.peer && S.peer.open){ syncMembers(); } }, 15000);
-// 本地模式：主持人心跳校准（成员每 3 秒对齐一次进度/播放状态）
+// 主持人端定期发心跳并清理离线成员（手机锁屏/杀进程/断网不会触发 close 事件，靠 40 秒活跃窗口判断）
+setInterval(()=>{ if(S.host && S.peer && S.peer.open){ broadcast({t:'ping'}); syncMembers(); } }, 15000);
+// 本地模式：主持人心跳校准（成员每 2 秒对齐一次进度/播放状态）
 setInterval(()=>{
   if(S.host && S.mode==='local' && S.fileReady && !S.streamOn && S.peer && S.peer.open){
     const v = $('localVideo');
     broadcast({t:'vpos', time:v.currentTime, playing:!v.paused});
   }
-}, 3000);
+}, 2000);
 (function init(){
   if(location.hash && location.hash.length>4){
     initFromHash();
