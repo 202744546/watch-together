@@ -124,6 +124,14 @@ header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.88);backdro
 .share-focus video{max-width:92vw;max-height:88vh;border-radius:8px}
 .share-focus .sf-close{position:absolute;top:14px;right:20px;color:#fff;font-size:26px;cursor:pointer;padding:6px}
 .share-focus .sf-name{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:#fff;font-size:14px;background:rgba(0,0,0,.55);padding:4px 14px;border-radius:99px}
+/* 播放列表 */
+.pl-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:8px;background:#f8fafc}
+.pl-item.now{border-color:#2563eb;background:#eff6ff}
+.pl-item .pl-ico{font-size:18px}
+.pl-item .pl-title{flex:1;min-width:0}
+.pl-item .pl-title .t{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-item .pl-title .m{font-size:11px;color:#94a3b8}
+.pl-item .pl-ops{display:flex;gap:4px}
 
 /* 语音 */
 .audio-row{display:flex;gap:10px;margin-top:12px;align-items:center}
@@ -157,7 +165,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
 <header>
   <div class="header-in">
-    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v3.2</span></div>
+    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v3.3</span></div>
     <div id="headerRoom" class="header-badge hidden">
       <span class="status-dot" id="statusDot"></span>
       房间 <b id="roomIdText"></b>
@@ -207,9 +215,20 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
         <div class="vid-card" id="vidCard"></div>
         <div class="row mt">
           <input id="nickInput" class="url-input grow" placeholder="你的昵称（如：小明）" maxlength="12" autocomplete="off">
+          <input id="roomPwdInput" class="url-input" style="max-width:150px" placeholder="房间密码（可选）" maxlength="12" autocomplete="off">
           <button class="btn" onclick="createRoom()">创建房间 · 开始一起看</button>
         </div>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-title">已有房间号？直接加入</div>
+      <div class="row mt" style="flex-wrap:wrap">
+        <input id="joinRoomInput" class="url-input" style="max-width:160px;text-transform:uppercase" placeholder="房间号，如 AB12CD" maxlength="12" autocomplete="off">
+        <input id="joinPwdInput" class="url-input" style="max-width:150px" placeholder="房间密码（没有则留空）" maxlength="12" autocomplete="off">
+        <button class="btn" onclick="joinByRoomId()">进入房间</button>
+      </div>
+      <div class="hint mt">输入主持人告知的房间号即可加入；若房间设置了密码，请一并填写。首次进入会要求填写昵称。</div>
     </div>
 
     <div class="card">
@@ -221,7 +240,11 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
         <b>本地文件模式（推荐）：</b>双方各自持有同一视频文件，网页真实时同步——拖进度、暂停、跳转秒级跟随，原画质零缓冲<br>
         <b>串流模式：</b>主持人可一键把画面实时推给没有文件的朋友（对上行带宽有要求）<br>
         <b>房间内切换：</b>主持人点「🔄 切换视频」可随时换 B站链接 / MP4直链 / 本地文件，全员自动跟随<br>
-        <b>通用：</b>支持文字聊天与语音通话；主持人可开放「成员控制」让朋友也能同步画面<br><br>
+        <b>播放列表：</b>主持人和成员都可把 B站链接 / MP4直链 / 本地文件加入列表；主持人点「▶ 播放」切换，全员自动跟随；本地文件项播放时需持有者在线推流<br>
+          <b>快捷键：</b>←/→ 各退/进 5 秒；长按 → 键 2 倍速（长按时 ↑↓ 调倍速，松开恢复）——本地/直链模式支持，B站模式不支持倍速<br>
+          <b>房间密码：</b>主持人创建房间时可设密码（口头告知朋友）；也可在首页直接输入房间号进入<br>
+          <b>成员管理：</b>主持人可禁言（不能说话）、禁听（听不到别人）、移出成员；成员可「分享画面」作为副屏<br>
+          <b>通用：</b>支持文字聊天与语音通话；主持人可开放「成员控制」让朋友也能同步画面<br><br>
         <span class="alert">语音与串流需 HTTPS 环境（本地双击打开时不可用）；本地文件不会上传网络，只同步播放进度。</span>
       </div>
     </div>
@@ -266,6 +289,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
             <button onclick="nudgeTime(10)">+10秒</button>
             <button onclick="nudgeTime(60)">+1分</button>
           </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px">快捷键：←/→ 各 ±5秒 · 长按 → 2x倍速（长按时 ↑↓ 调倍速，松开恢复）· B站模式不支持倍速</div>
           <div class="seek-row">
             <input id="seekInput" placeholder="输入时间，如 12:34 或 1:02:03" autocomplete="off">
             <button class="btn small" onclick="seekToInput()">跳转</button>
@@ -284,7 +308,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
             <button class="btn ghost" id="btnStream" onclick="toggleStream()">📡 推流给没文件的朋友</button>
           </div>
           <div class="perm-row">
-            <button class="btn ghost" onclick="openSwitchModal()">🔄 切换视频</button>
+            <button class="btn ghost" onclick="openSwitchModal()">📜 播放列表 / 添加视频</button>
           </div>
           <div class="hint mt" id="hostHint">开播/暂停会广播给所有人。开启「允许成员控制」后，朋友也能同步画面。<br>改时间：看自己播放器左下角的进度，在输入框填好再点播放。</div>
         </div>
@@ -298,6 +322,12 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
             <button class="btn ghost" id="btnShare" onclick="toggleShare()">📤 分享我的画面</button>
           </div>
           <div style="font-size:11px;color:#94a3b8;margin-top:4px">把你的本地视频/直链画面分享给全房间（B站画面不支持分享）</div>
+          <div class="perm-row" style="margin-top:8px">
+            <button class="btn ghost" id="btnPlAdd" onclick="openSwitchModal()">➕ 添加视频到播放列表</button>
+          </div>
+          <div class="perm-row" style="margin-top:8px;display:none" id="mainRow">
+            <button class="btn ghost" id="btnMain" onclick="toggleMainShare()">⏹ 停止推流</button>
+          </div>
         </div>
 
         <!-- 语音 -->
@@ -345,18 +375,22 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
     <h3 id="welcomeTitle">加入观影房间</h3>
     <p id="welcomeDesc">你被邀请一起看视频，请输入昵称进入房间。</p>
     <input id="modalNick" class="url-input" placeholder="你的昵称（如：小红）" maxlength="12" autocomplete="off">
+    <input id="modalPwd" class="url-input" placeholder="房间密码（没有则留空）" maxlength="12" autocomplete="off">
     <button class="btn" onclick="joinRoomConfirm()">进入房间</button>
   </div>
 </div>
 
 <div class="mask hidden" id="switchModal" onclick="if(event.target===this)closeSwitchModal()">
-  <div class="modal">
-    <h3>🔄 切换视频</h3>
-    <p>切换后全员自动跟随（新视频从头开始）。当前模式：<b id="switchCurMode"></b></p>
-    <input id="switchUrlInput" class="url-input" placeholder="新视频链接：B站链接 或 MP4直链" autocomplete="off" style="margin-bottom:8px">
-    <button class="btn" onclick="switchToUrl()">🔗 切换到这个链接</button>
-    <button class="btn ghost" onclick="switchModalPickLocal()">📁 切换到本地文件（重新选文件）</button>
-    <button class="btn ghost" onclick="closeSwitchModal()">取消</button>
+  <div class="modal" style="max-width:600px;max-height:82vh;overflow:auto">
+    <h3>📜 播放列表</h3>
+    <p style="font-size:12px;color:#64748b">添加的视频先进入列表；<b>主持人</b>点「▶ 播放」才切换，全员自动跟随。本地文件项播放时需持有者在线推流。当前模式：<b id="switchCurMode"></b></p>
+    <input id="switchUrlInput" class="url-input" placeholder="添加视频：粘贴 B站链接 或 MP4直链" autocomplete="off" style="margin-bottom:8px">
+    <div class="row" style="flex-wrap:wrap;gap:8px">
+      <button class="btn" onclick="plAddUrl()">➕ 加入列表</button>
+      <button class="btn ghost" onclick="plModalPickLocal()">📁 加入本地文件（需持有者在线）</button>
+      <button class="btn ghost" onclick="closeSwitchModal()">关闭</button>
+    </div>
+    <div id="plList" style="margin-top:12px"></div>
   </div>
 </div>
 
@@ -413,10 +447,22 @@ const S = {
   members:[],
   sharing:false,        // 成员：我是否正在分享画面
   shareStream:null,     // 成员：我分享的视频流
-  muted:false           // 成员：被主持人禁言
+  muted:false,          // 成员：被主持人禁言
+  deafened:false,       // 成员：被主持人禁听
+  pwd:'',               // 主持人：房间密码（内存保存，不进链接）
+  joinPwd:'',           // 成员：进入本房间用的密码
+  bare:false,           // 成员：仅凭房间号进入（无视频信息，等主持人 init 对齐）
+  _connEverOk:false,    // 成员：是否成功连上过主持人（用于房间号进入的失败提示）
+  playlist:[],          // 播放列表（主持人权威；成员端为渲染副本）
+  nowPlayingId:null,     // 播放列表：当前播放项 id
+  awaitingOwner:false,  // 本地文件项：我（主持人）没有文件，等待持有者推流
+  ownerName:'',         // 等待推流的持有者昵称（提示用）
+  mainOn:false,         // 成员：我是否正在把画面推上主画面（播放列表本地文件项联动）
+  mainStream:null,       // 成员：主画面推流用的流
+  viewingStream:false    // 我正在观看某人推流的主画面
 };
 const ROOM_PREFIX = 'yk-sync-';
-const APP_VERSION = 'v3.2';
+const APP_VERSION = 'v3.3';
 /* WebRTC 打洞服务器：优先国内 STUN（腾讯/B站/CDNBye），备选 Google STUN + 免费 TURN 兼底 */
 const RTC_CONFIG = {
   iceServers: [
@@ -532,6 +578,7 @@ function parseUrlLink(){
 function createRoom(){
   const nick = ($('nickInput').value||'').trim();
   if(!nick){ toast('请先填写昵称'); return; }
+  S.pwd = ($('roomPwdInput').value||'').trim();   // 房间密码：只存主持人内存，不进邀请链接（另行口头告知成员）
   const roomId = Math.random().toString(36).slice(2,8).toUpperCase();
   let hash;
   if(S.mode === 'local'){
@@ -547,6 +594,15 @@ function createRoom(){
   }
   location.hash = hash;   // hashchange 会自动触发 initFromHash
 }
+/* 首页：凭房间号直接进入（无视频信息，等主持人 init 自动对齐） */
+function joinByRoomId(){
+  const rid = ($('joinRoomInput').value||'').trim().toUpperCase();
+  if(!rid){ toast('请输入房间号'); return; }
+  if(!/^[A-Z0-9]{4,12}$/.test(rid)){ toast('房间号格式不对（4-12位字母/数字）'); return; }
+  S.joinPwd = ($('joinPwdInput').value||'').trim();
+  try{ sessionStorage.setItem('wt_joinPwd', S.joinPwd); }catch(e){}   // 刷新自动重进时密码可复用
+  location.hash = '#room=' + rid;   // initFromHash 以 bare 模式接管
+}
 
 /* ================= 房间初始化 ================= */
 function parseHash(){
@@ -557,9 +613,11 @@ function parseHash(){
 }
 function initFromHash(){
   const o = parseHash();
-  if(!o.room || (!o.bvid && o.mode!=='local' && o.mode!=='url')) return;
+  if(!o.room) return;
   if(S._started && S.roomId === o.room) return;   // 幂等：同一房间不重复初始化
   S._started = true;
+  // bare：hash 里只有房间号（首页"输入房间号进入"），视频信息等主持人 init 下发后自动对齐
+  S.bare = !o.bvid && o.mode!=='local' && o.mode!=='url';
   S.roomId = o.room;
   S.mode = (o.mode==='local') ? 'local' : (o.mode==='url' ? 'url' : 'bili');
   S.bvid = o.bvid || null;
@@ -592,6 +650,7 @@ function openWelcome(){
   // 昵称记忆：刷新页面预填上次昵称；同一房间重进时直接自动进入（免重复输入）
   let saved = ''; try{ saved = localStorage.getItem('wt_nick')||''; }catch(e){}
   if(saved) $('modalNick').value = saved;
+  try{ const sp = sessionStorage.getItem('wt_joinPwd')||''; if(sp){ S.joinPwd = sp; $('modalPwd').value = sp; } }catch(e){}
   $('welcomeModal').classList.remove('hidden');
   $('modalNick').focus();
   try{
@@ -605,7 +664,8 @@ function joinRoomConfirm(){
   const nick = ($('modalNick').value||'').trim();
   if(!nick){ toast('请输入昵称'); return; }
   S.myName = nick;
-  try{ localStorage.setItem('wt_nick', nick); localStorage.setItem('wt_lastRoom', S.roomId||''); }catch(e){}
+  S.joinPwd = ($('modalPwd').value||'').trim();
+  try{ localStorage.setItem('wt_nick', nick); localStorage.setItem('wt_lastRoom', S.roomId||''); sessionStorage.setItem('wt_joinPwd', S.joinPwd); }catch(e){}
   $('welcomeModal').classList.add('hidden');
   if(S.host) startHost(); else startMember();
 }
@@ -613,6 +673,7 @@ function startHost(){
   if(S.peer){ try{S.peer.destroy();}catch(e){} S.peer = null; }
   S.curT = 0; S.lastPlaying = false;
   $('timerTime').textContent = fmt(S.curT);
+  plRestore();   // 恢复本房间的播放列表（刷新不丢）
   if(S.mode==='local' && window._localFile){ loadLocalFile(window._localFile); }
   else if(S.mode==='url'){ loadUrlVideo(S.vurl); }
   else if(S.mode==='bili') buildPlayer(0, false);
@@ -621,8 +682,7 @@ function startHost(){
   S.peer.on('open', id => { S.peerId = id; toast('房间已创建，把邀请链接发给朋友吧'); setStatus(true); });
   S.peer.on('connection', conn => {
     conn.on('open', ()=>{
-      conn.send({t:'init', cur:getCurT(), playing:S.lastPlaying, host:S.myName, perm:S.perm, members:currentMemberList(),
-        mode:S.mode, bvid:S.bvid, page:S.page, vurl:S.vurl, fname:S.fname, fsize:S.fsize});   // 附带当前视频信息：切换后新进/重连的成员能对上
+      conn._authed = false;   // 密码握手：等成员发 auth 校验通过后再下发 init（见 onHostData auth 分支）
       syncMembers();
     });
     conn.on('data', d => onHostData(conn, d));
@@ -642,27 +702,34 @@ function startHost(){
 }
 function startMember(){
   if(S.peer){ try{S.peer.destroy();}catch(e){} S.peer = null; }
-  if(S.mode==='url') loadUrlVideo(S.vurl);
+  if(S.bare){ /* 仅凭房间号进入：不预建播放器，等主持人 init 对齐 */ }
+  else if(S.mode==='url') loadUrlVideo(S.vurl);
   else if(S.mode==='bili') buildPlayer(0, false);
   if(!window.Peer){ toast('同步组件加载失败，请刷新重试'); return; }
   S.peer = new Peer(null, { config: RTC_CONFIG });
   S.peer.on('open', id => { S.peerId = id; connectToHost(); });
   S.peer.on('call', call => onIncomingCall(call));
   S.peer.on('disconnected', ()=>{ setStatus(false); try{S.peer.reconnect();}catch(e){} });
-  S.peer.on('error', ()=>{ setStatus(false); });
+  S.peer.on('error', err => { setStatus(false); if(err && err.type==='peer-unavailable') bareFailHint(); });
 }
 function connectToHost(){
   const conn = S.peer.connect(peerPrefix(), {reliable:true});
   conn.on('open', ()=>{
-    conn.send({t:'hello', name:S.myName, mic:S.mic});
+    // 密码握手：先发 auth（含密码+昵称），主持人校验通过才会下发房间数据
+    conn.send({t:'auth', pwd:S.joinPwd||'', name:S.myName, mic:S.mic});
     S.conn = conn;
+    S._connEverOk = true;
     setStatus(true);
     addChat('system','已加入房间，等待主持人同步…');
     if(S.mic) connectVoiceAll();
   });
   conn.on('data', d => onMemberData(d));
   conn.on('close', ()=>{ setStatus(false); S.conn = null; scheduleRetry(); });
-  conn.on('error', ()=>{ setStatus(false); scheduleRetry(); });
+  conn.on('error', ()=>{ setStatus(false); bareFailHint(); scheduleRetry(); });
+}
+function bareFailHint(){
+  // 仅凭房间号进入且从未连上：大概率房间不存在/主持人不在线
+  if(S.bare && !S._connEverOk){ toast('连不上该房间：请确认房间号正确、主持人页面还开着', 5000); }
 }
 let retryTimer = null;
 function scheduleRetry(){
@@ -681,10 +748,29 @@ function onHostData(conn, d){
   if(!d || typeof d !== 'object') return;
   if(conn && conn.peer){
     S.lastSeen = S.lastSeen || {}; S.lastSeen[conn.peer] = Date.now();   // 任何消息都算活跃
-    if(d.t !== 'hello' && !S.members.some(x=>x.id===conn.peer)){
+    if(d.t !== 'hello' && d.t !== 'auth' && !S.members.some(x=>x.id===conn.peer)){
       S.members.push({id:conn.peer, name:(S.memberNames||{})[conn.peer]||'朋友'});   // 被心跳清掉但实际在线的成员自动回归
       syncMembers();
     }
+  }
+  if(d.t === 'auth'){
+    // 密码握手：校验通过才注册成员并下发 init；密码不对直接断开
+    if(S.pwd && String(d.pwd||'') !== S.pwd){
+      try{ conn.send({t:'authFail'}); }catch(e){}
+      setTimeout(()=>{ try{ conn.close(); }catch(e){} }, 300);
+      return;
+    }
+    conn._authed = true;
+    const name = String(d.name||'朋友').slice(0,12);
+    S.memberNames = S.memberNames || {}; S.memberNames[conn.peer] = name;
+    S.members = S.members.filter(m=>m.id!==conn.peer);
+    S.members.push({id:conn.peer, name, mic:!!d.mic});
+    conn.send({t:'init', cur:getCurT(), playing:S.lastPlaying, host:S.myName, perm:S.perm, members:currentMemberList(),
+      mode:S.mode, bvid:S.bvid, page:S.page, vurl:S.vurl, fname:S.fname, fsize:S.fsize,
+      playlist:S.playlist, nowPlayingId:S.nowPlayingId});   // 附带当前视频信息与播放列表：新进/重连的成员能对上
+    broadcastState();
+    syncMembers();
+    return;
   }
   if(d.t === 'hello'){
     const name = String(d.name||'朋友').slice(0,12);
@@ -716,6 +802,21 @@ function onHostData(conn, d){
     addChat('system', (d.name||'朋友')+' 开始分享画面');
   } else if(d.t === 'shareStop'){
     broadcast({t:'shareStop', by:conn.peer});
+  } else if(d.t === 'plAdd'){
+    // 成员提交添加到播放列表
+    if(d.spec && d.spec.kind){
+      plDoAdd(d.spec, d.name || ((S.memberNames||{})[conn.peer]) || '朋友', conn.peer);
+      addChat('system', (d.name||'成员')+' 添加了视频：'+(d.spec.title||''));
+    }
+  } else if(d.t === 'plDel'){
+    // 成员请求删除自己添加的项
+    const it = S.playlist.find(x => x.id===d.id);
+    if(it && (it.byId===conn.peer || S.host)){
+      S.playlist = S.playlist.filter(x => x.id!==d.id);
+      if(S.nowPlayingId === d.id) S.nowPlayingId = null;
+      broadcastPlaylist();
+      renderPlaylist();
+    }
   }
 }
 function syncMembers(){
@@ -736,19 +837,25 @@ function broadcastState(){
   const msg = {t:'state', cur:getCurT(), playing:S.lastPlaying, host:S.myName, perm:S.perm, members:currentMemberList()};
   for(const k in S.peer.connections){
     const arr = S.peer.connections[k];
-    arr.forEach(c => { try{ if(c.open) c.send(msg); }catch(e){} });
+    arr.forEach(c => { try{ if(c.open && c._authed !== false) c.send(msg); }catch(e){} });   // _authed===false：密码未通过，不发房间数据
   }
 }
 function broadcast(msg){
   for(const k in S.peer.connections){
     const arr = S.peer.connections[k];
-    arr.forEach(c => { try{ if(c.open) c.send(msg); }catch(e){} });
+    arr.forEach(c => { try{ if(c.open && c._authed !== false) c.send(msg); }catch(e){} });
   }
 }
 
 /* ================= 成员收消息 ================= */
 function onMemberData(d){
   if(!d || typeof d !== 'object') return;
+  if(d.t === 'authFail'){
+    toast('房间密码错误，无法进入', 4000);
+    try{ localStorage.removeItem('wt_lastRoom'); sessionStorage.removeItem('wt_joinPwd'); }catch(e){}   // 防止刷新后带着错误密码自动重进
+    setTimeout(goHome, 1200);
+    return;
+  }
   if(d.t === 'init'){
     applyState(d, true);
   } else if(d.t === 'state'){
@@ -771,6 +878,8 @@ function onMemberData(d){
     addChat('system', S.canControl ? '主持人已开放「成员控制」，你可以同步大家了' : '主持人已收回成员控制权限');
   } else if(d.t === 'vplay' || d.t === 'vpause' || d.t === 'vseek'){
     applyLocalCmd(d.t.slice(1), d.time, d.by);
+  } else if(d.t === 'vstep'){
+    applyLocalCmd('step', d.delta, d.by);   // 播放列表·本地文件项：持有者按相对步进执行
   } else if(d.t === 'vpos'){
     onVPos(d);
   } else if(d.t === 'streammode'){
@@ -786,6 +895,10 @@ function onMemberData(d){
     const inp = $('chatInput');
     if(inp) inp.placeholder = S.muted ? '你已被主持人禁言' : '说点什么…';
     toast(S.muted ? '你已被主持人禁言，暂时不能发言' : '主持人已解除你的禁言', 3500);
+  } else if(d.t === 'deafen'){
+    S.deafened = !!d.on;
+    applyDeafen();
+    toast(S.deafened ? '主持人已对你禁听：你将听不到大家说话（你说话大家仍能听到）' : '主持人已解除你的禁听', 3500);
   } else if(d.t === 'kick'){
     toast('你已被主持人移出房间', 4000);
     try{ localStorage.removeItem('wt_lastRoom'); }catch(e){}   // 清除房间记忆：防止被踢者再用链接自动重进
@@ -794,6 +907,11 @@ function onMemberData(d){
     if(d.by !== S.peerId) addChat('system', (d.name||'朋友')+' 开始分享画面');
   } else if(d.t === 'shareStop'){
     onShareStopped(d.by);
+  } else if(d.t === 'pl'){
+    // 播放列表全量同步（主持人权威）
+    S.playlist = Array.isArray(d.list) ? d.list : [];
+    S.nowPlayingId = d.nowPlayingId || null;
+    renderPlaylist();
   }
 }
 function applyState(d, first){
@@ -802,6 +920,7 @@ function applyState(d, first){
   clockSet(S.curT, S.lastPlaying);   // B站模式：成员时钟对齐主持人（含走动推算）
   S.hostName = d.host||'主持人';
   S.perm = !!d.perm;
+  if('playlist' in d){ S.playlist = Array.isArray(d.playlist) ? d.playlist : []; S.nowPlayingId = d.nowPlayingId || null; renderPlaylist(); }   // init 带全量播放列表
   const list = Array.isArray(d.members) ? d.members : [];
   S.voicePeers = list.filter(m => m.peerId && m.peerId !== S.peerId).map(m => ({peerId:m.peerId, name:m.name, mic:!!m.mic}));
   S.roomMembers = list.map(m => ({name:m.name, mic:!!m.mic, me: m.peerId===S.peerId}));
@@ -850,6 +969,7 @@ function renderAccess(){
   $('shareRow').classList.toggle('hidden', S.host);
   $('btnPerm').textContent = S.perm ? '🔒 关闭成员控制' : '🔓 允许成员控制';
   updateShareBtn();
+  updateMainBtn();
 }
 function togglePerm(){
   if(!S.host) return;
@@ -859,10 +979,67 @@ function togglePerm(){
   toast(S.perm ? '已开放成员控制权限' : '已关闭成员控制权限');
 }
 function stepControl(delta){ nudgeTime(delta); }
+/* ================= 方向键快捷键（本地/直链完整支持；B站仅 ±5s） ================= */
+let _hkTimer = null;      // 长按右键的延迟计时器
+let _hkSpeedOn = false;   // 是否处于长按倍速中
+let _hkRate = 2;          // 长按倍速的当前速率
+function hkInInput(){
+  const el = document.activeElement;
+  if(!el) return false;
+  const tag = (el.tagName||'').toLowerCase();
+  return tag==='input' || tag==='textarea' || el.isContentEditable;
+}
+function hkSetRate(r){
+  _hkRate = r;
+  try{ $('localVideo').playbackRate = _hkRate; }catch(e){}
+}
+document.addEventListener('keydown', e => {
+  if(!S._started || hkInInput()) return;
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].indexOf(e.key)<0) return;
+  e.preventDefault();   // 防止方向键滚动页面
+  if(!canControl()) return;
+  if(e.key==='ArrowLeft'){ if(!e.repeat) nudgeTime(-5); return; }
+  if(e.key==='ArrowRight'){
+    if(e.repeat) return;   // 按住产生的重复事件：交给长按倍速逻辑
+    if(useVideoMode() && S.fileReady){
+      // 短按+5s 或 长按进入倍速（350ms 后判定）
+      clearTimeout(_hkTimer);
+      _hkTimer = setTimeout(()=>{
+        _hkSpeedOn = true; _hkRate = 2;
+        hkSetRate(2);
+        toast('⏩ 2x 倍速播放中——松开恢复；↑ 加速 / ↓ 减速', 2600);
+      }, 350);
+    } else {
+      nudgeTime(5);   // B站模式（±5s 对齐）或推流接收端（会走原有提示）
+    }
+    return;
+  }
+  if(_hkSpeedOn && e.key==='ArrowUp'){ hkSetRate(Math.min(4, _hkRate + 0.5)); toast('⏩ '+_hkRate+'x'); return; }
+  if(_hkSpeedOn && e.key==='ArrowDown'){ hkSetRate(Math.max(1.5, _hkRate - 0.5)); toast('⏩ '+_hkRate+'x'); return; }
+});
+document.addEventListener('keyup', e => {
+  if(e.key !== 'ArrowRight') return;
+  clearTimeout(_hkTimer);
+  if(_hkSpeedOn){
+    _hkSpeedOn = false;
+    hkSetRate(1);   // 松开恢复常速
+  } else if(S._started && !hkInInput() && canControl() && useVideoMode() && S.fileReady){
+    nudgeTime(5);   // 350ms 内松开：视为短按 +5s
+  }
+});
+window.addEventListener('blur', ()=>{ if(_hkSpeedOn){ _hkSpeedOn = false; try{ hkSetRate(1); }catch(e){} } });   // 窗口失焦兜底恢复
 function nudgeTime(delta){
   if(!canControl()) return;
   if(useVideoMode()){
-    if(!S.fileReady){ toast(S.streamOn ? '推流模式下暂不支持快进/跳转，可用 播放/暂停' : '请先选择视频文件'); return; }
+    if(!S.fileReady){
+      if(S.host && S.awaitingOwner){
+        // 播放列表·本地文件项：主持人没有文件，把相对步进指令广播给持有者执行
+        broadcast({t:'vstep', delta:delta, by:S.myName});
+        $('playState').textContent = (delta>0?'↪ +':'↩ ')+delta+'秒（持有者画面跟随）';
+        return;
+      }
+      toast(S.streamOn ? '推流模式下暂不支持快进/跳转，可用 播放/暂停' : '请先选择视频文件'); return;
+    }
     const v = $('localVideo');
     v.currentTime = Math.max(0, v.currentTime + delta);
     return;
@@ -899,6 +1076,12 @@ function ctrlPlay(){
   if(useVideoMode()){
     if(!S.fileReady){
       if(S.streamOn){ sendLocalCmd('play', null); return; }   // 推流模式：控制主持人的画面
+      if(S.host && S.awaitingOwner){
+        broadcast({t:'vplay', time:null, by:S.myName});   // 播放列表·本地文件项：持有者的画面执行，全员看推流
+        S.lastPlaying = true;
+        $('playState').textContent = '▶ '+S.myName+'：开播（持有者画面执行）';
+        return;
+      }
       toast('请先选择视频文件，或等待主持人推流'); return;
     }
     $('localVideo').play().catch(()=>toast('请点画面上的播放键'));
@@ -911,6 +1094,12 @@ function ctrlPause(){
   if(useVideoMode()){
     if(!S.fileReady){
       if(S.streamOn){ sendLocalCmd('pause', null); return; }
+      if(S.host && S.awaitingOwner){
+        broadcast({t:'vpause', time:null, by:S.myName});
+        S.lastPlaying = false;
+        $('playState').textContent = '⏸ '+S.myName+'：暂停（持有者画面执行）';
+        return;
+      }
       toast('请先选择视频文件');
       return;
     }
@@ -956,6 +1145,7 @@ const AUD = {
   els:{},         // peerId -> Audio元素（播放对方声音）
   streamCalls:{}, // 主持人：peerId -> 推流连接
   streamCallIn:null,  // 成员：接收到的推流连接
+  mainOut:{},     // 成员主画面推流：我发起的连接（peerId -> call，播放列表本地文件项联动）
   shareOut:{},    // 成员分享：我发起的分享连接（peerId -> call）
   shareIn:{}      // 成员分享：我接收的分享连接（sharerPeerId -> call）
 };
@@ -1080,19 +1270,21 @@ function connectVoiceAll(){
 /* 接听：对方发起的语音连接（对方开麦了） */
 function onIncomingCall(call){
   const pid = call.peer;
-  // 串流推流（视频+视频声音）
+  // 串流推流（视频+视频声音）：主持人推流 或 播放列表本地文件项的持有者推流，接收方一律在大屏观看
   if(call.metadata && call.metadata.type === 'stream'){
     try{ if(AUD.streamCallIn) AUD.streamCallIn.close(); }catch(e){}
     AUD.streamCallIn = call;
     try{ call.answer(); }catch(e){}
-    if(!S.host && !S.streamOn) onStreamMode(true);   // 成员中途加入/重连时恢复推流模式（否则画面元素隐藏看不见）
+    const streamerName = call.metadata.name || '成员';
+    applyStreamView(true, streamerName);
+    toast((streamerName)+' 开推流了：正在大屏播放TA的画面');
     call.on('stream', s => {
       const sv = $('streamVideo');
       sv.srcObject = s;
       const p = sv.play();
       if(p && p.catch) p.catch(()=>{ toast('点一下画面开始播放'); });
     });
-    call.on('close', ()=>{ AUD.streamCallIn = null; try{ $('streamVideo').srcObject = null; }catch(e){} });
+    call.on('close', ()=>{ AUD.streamCallIn = null; applyStreamView(false); });
     call.on('error', ()=>{ AUD.streamCallIn = null; });
     return;
   }
@@ -1127,9 +1319,16 @@ function playRemote(pid, stream){
       AUD.els[pid] = el;
     }
     el.srcObject = stream;
+    el.volume = S.deafened ? 0 : 1;   // 禁听状态：新到的语音流也静音
     const p = el.play();
     if(p) p.catch(()=>markAudioBlocked());
   }catch(e){ markAudioBlocked(); }
+}
+/* 应用/解除禁听：把所有已播放的远端语音同步静音/恢复 */
+function applyDeafen(){
+  for(const pid in AUD.els){
+    try{ AUD.els[pid].volume = S.deafened ? 0 : 1; }catch(e){}
+  }
 }
 function stopRemote(pid){
   const el = AUD.els[pid];
@@ -1228,6 +1427,68 @@ function closeShareFocus(){
   const f = $('shareFocus');
   f.classList.add('hidden');
   try{ $('shareFocusVideo').srcObject = null; }catch(e){}
+}
+/* ================= 成员主画面推流（播放列表·本地文件项：持有者把画面推上大屏） ================= */
+function startMainShare(){
+  const v = $('localVideo');
+  if(!S.fileReady || !v.src){ toast('请先选择/加载视频文件再推流'); return; }
+  const targets = voiceTargets().filter(m => isDataOpen(m.peerId));
+  if(targets.length === 0){ toast('房间里暂时没有其他在线成员'); return; }
+  // 修复：video 元数据未就绪时 captureStream 会得到空轨道（对方永远收不到画面）——等 readyState>=1 再捕获（同 v2.1 推流修复）
+  if(v.readyState < 1){
+    toast('画面加载中，就绪后自动开始推流…');
+    v.addEventListener('loadedmetadata', ()=>{ if(!S.mainOn) startMainShare(); }, {once:true});
+    return;
+  }
+  let stream = null;
+  try{ stream = v.captureStream(); }catch(e){ toast('当前浏览器不支持画面推流'); return; }
+  if(!stream.getTracks().length){ toast('画面轨道还没准备好，稍后重试'); return; }
+  S.mainStream = stream;
+  S.mainOn = true;
+  updateMainBtn();
+  try{
+    targets.forEach(m => {
+      const call = S.peer.call(m.peerId, stream, {metadata:{type:'stream', name:S.myName, by:S.peerId}});
+      AUD.mainOut[m.peerId] = call;
+      call.on('close', ()=>{ delete AUD.mainOut[m.peerId]; });
+      call.on('error', ()=>{ delete AUD.mainOut[m.peerId]; });
+    });
+  }catch(e){}
+  toast('正在把你的画面推给全房间（含主持人）');
+}
+function stopMainShare(){
+  if(!S.mainOn) return;
+  S.mainOn = false;
+  try{ S.mainStream && S.mainStream.getTracks().forEach(t=>t.stop()); }catch(e){}
+  S.mainStream = null;
+  for(const pid in AUD.mainOut){ try{ AUD.mainOut[pid].close(); }catch(e){} }
+  AUD.mainOut = {};
+  updateMainBtn();
+  toast('已停止主画面推流');
+}
+function toggleMainShare(){ S.mainOn ? stopMainShare() : startMainShare(); }
+function updateMainBtn(){
+  const row = document.getElementById('mainRow');
+  const b = document.getElementById('btnMain');
+  if(!row || !b) return;
+  // 成员在本地/直链模式随时可手动把画面推上主屏（自动识别失效时的兜底入口）；推流中显示停止按钮
+  row.style.display = (!S.host && useVideoMode()) ? 'flex' : 'none';
+  b.textContent = S.mainOn ? '⏹ 停止推流（全房间正看你的画面）' : '📡 把我的画面推上主屏';
+}
+/* 观看推流画面的显示状态（主持人/成员通用：接收 type='stream' 的推流时） */
+function applyStreamView(on, name){
+  S.viewingStream = !!on;
+  if(on){
+    $('streamVideo').classList.remove('hidden');
+    $('localVideo').classList.add('hidden');
+    $('filePick').classList.add('hidden');
+    $('playState').textContent = '📡 正在看 '+(name||'成员')+' 推流的画面（播放/暂停由主持人控制）';
+  }else{
+    $('streamVideo').classList.add('hidden');
+    try{ $('streamVideo').srcObject = null; }catch(e){}
+    if(S.fileReady){ $('localVideo').classList.remove('hidden'); $('playState').textContent = '已切回自己的画面'; }
+    else if(S.mode==='local'){ $('filePick').classList.remove('hidden'); }
+  }
 }
 function closeMic(){
   try{ AUD.mic && AUD.mic.getTracks().forEach(t=>t.stop()); }catch(e){}
@@ -1372,6 +1633,11 @@ function roomFileChosen(inp){
   addChat('system', '视频文件已就绪，等待主持人同步');
   if(S.conn && S.conn.open) S.conn.send({t:'fileready', name:S.myName});
   toast(warn ? '文件已加载，但与主持人的文件有差异' : '文件已就绪');
+  // 播放列表·本地文件项联动：轮到我当内容源时，选完文件自动把画面推上主屏
+  if(!S.host && S.fname && f.name === S.fname && (window._awaitingMyTurn)){
+    window._awaitingMyTurn = false;
+    startMainShare();
+  }
 }
 let _localEventsBound = false;
 function setupLocalVideoEvents(){
@@ -1406,7 +1672,12 @@ function applyLocalCmd(cmd, time, by){
   const v = $('localVideo');
   S.applying = true;
   try{
-    if(typeof time === 'number' && !isNaN(time) && Math.abs(v.currentTime - time) > 0.6) v.currentTime = Math.max(0, time);
+    if(cmd==='step'){
+      const n = parseFloat(time)||0;
+      v.currentTime = Math.max(0, v.currentTime + n);   // vstep 相对步进：持有者画面执行
+    } else if(typeof time === 'number' && !isNaN(time) && Math.abs(v.currentTime - time) > 0.6){
+      v.currentTime = Math.max(0, time);
+    }
     if(cmd==='play'){ const p = v.play(); if(p && p.catch) p.catch(()=>{ toast('浏览器拦截了自动播放：请点一下画面上的播放键'); }); }
     else if(cmd==='pause') v.pause();
   }catch(e){}
@@ -1533,50 +1804,142 @@ function onStreamMode(on){
   }
 }
 
-/* ================= 切换视频（主持人发起，成员自动跟随） ================= */
+/* ================= 播放列表（所有人可添加；主持人点播/删除） ================= */
 function openSwitchModal(){
-  if(!S.host) return;
   $('switchCurMode').textContent = (S.mode==='bili'?'B站':(S.mode==='url'?'MP4直链':(S.mode==='local'?'本地文件':'未知')));
   $('switchUrlInput').value = '';
+  renderPlaylist();
   $('switchModal').classList.remove('hidden');
 }
 function closeSwitchModal(){ $('switchModal').classList.add('hidden'); }
-/* 弹窗里选"切换到本地文件"：隐藏弹窗触发文件选择，选完自动走切换 */
-function switchModalPickLocal(){
+/* 弹窗里选"加入本地文件"：选完只记录元信息（文件不上传），播放时需持有者在线推流 */
+function plModalPickLocal(){
   closeSwitchModal();
   const inp = document.createElement('input');
   inp.type = 'file';
   inp.accept = 'video/mp4,video/webm,video/ogg,.mp4,.webm,.mkv,.mov';
-  inp.onchange = ()=>{ const f = inp.files && inp.files[0]; if(f) switchToLocalFile(f); };
+  inp.onchange = ()=>{ const f = inp.files && inp.files[0]; if(f) plLocalChosen(f); };
   inp.click();
 }
-/* 主持人：切换到新链接（自动识别 B站 / MP4直链） */
-function switchToUrl(){
-  if(!S.host) return;
-  const u = ($('switchUrlInput').value||'').trim();
-  if(!u){ toast('请先粘贴新视频链接'); return; }
-  closeSwitchModal();
-  const b = parseBiliLink(u);
-  if(b.bvid){
-    // B站模式
-    switchVideo({mode:'bili', bvid:b.bvid, page:b.page});
-  } else {
-    // 当作直链
-    let ok = false; try{ new URL(u); ok = true; }catch(e){}
-    if(!ok){ toast('链接格式不对：请粘贴 B站链接 或 以 http 开头的 MP4 直链'); return; }
-    switchVideo({mode:'url', vurl:u});
-  }
+function plLocalChosen(f){
+  // 暂存自己的文件（按文件名索引）：播放轮到该项时用来自动推流
+  window._plMyFiles = window._plMyFiles || {};
+  window._plMyFiles[f.name] = f;
+  const spec = {kind:'local', fname:f.name, fsize:f.size, title:f.name};
+  if(S.host){ plDoAdd(spec, S.myName, S.peerId); }
+  else if(S.conn && S.conn.open){ S.conn.send({t:'plAdd', spec, name:S.myName}); toast('已提交到播放列表'); }
 }
-/* 主持人：切换到本地文件 */
-function switchToLocalFile(f){
+/* 弹窗里粘贴链接加入列表（自动识别 B站 / MP4直链） */
+function plAddUrl(){
+  const u = ($('switchUrlInput').value||'').trim();
+  if(!u){ toast('请先粘贴视频链接'); return; }
+  const b = parseBiliLink(u);
+  let spec = null;
+  if(b.bvid){
+    spec = {kind:'bili', bvid:b.bvid, page:b.page||1, title:'B站视频 '+b.bvid};
+  } else {
+    let ok = false; try{ new URL(u); ok = true; }catch(e){}
+    if(!ok){ toast('链接格式不对：请粘贴 B站链接 或以 http 开头的 MP4 直链'); return; }
+    const fn = u.split('/').pop().split('?')[0] || 'video.mp4';
+    spec = {kind:'url', vurl:u, title:fn};
+  }
+  if(S.host){ plDoAdd(spec, S.myName, S.peerId); }
+  else if(S.conn && S.conn.open){ S.conn.send({t:'plAdd', spec, name:S.myName}); toast('已提交到播放列表'); }
+  $('switchUrlInput').value = '';
+}
+/* 主持人：加入列表并广播 */
+function plDoAdd(spec, by, byId){
+  const item = Object.assign({}, spec, {
+    id: 'pl-' + Math.random().toString(36).slice(2, 9),
+    by: by || '朋友',
+    byId: byId || S.peerId
+  });
+  S.playlist.push(item);
+  broadcastPlaylist();
+  renderPlaylist();
+  toast('已加入播放列表：'+(item.title||'视频'));
+}
+function broadcastPlaylist(){
+  // File 对象不能随消息序列化：剔除 _file 后全量广播
+  const list = S.playlist.map(x => { const c = Object.assign({}, x); delete c._file; return c; });
+  broadcast({t:'pl', list:list, nowPlayingId:S.nowPlayingId});
+  plPersist();
+}
+/* 播放列表持久化：主持人刷新页面不丢列表（localStorage，按房间号隔离） */
+function plPersist(){
+  try{ localStorage.setItem('wt_pl_'+S.roomId, JSON.stringify(S.playlist)); }catch(e){}
+}
+function plRestore(){
+  try{
+    const s = localStorage.getItem('wt_pl_'+S.roomId);
+    if(s){
+      const arr = JSON.parse(s);
+      if(Array.isArray(arr)) S.playlist = arr;
+    }
+  }catch(e){}
+}
+function renderPlaylist(){
+  const box = $('plList');
+  if(!box) return;
+  if(!S.playlist.length){
+    box.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:10px 0;text-align:center">列表还是空的：粘贴链接或选择本地文件加入</div>';
+    return;
+  }
+  box.innerHTML = '';
+  S.playlist.forEach(it => {
+    const div = document.createElement('div');
+    div.className = 'pl-item' + (it.id===S.nowPlayingId ? ' now' : '');
+    const ico = it.kind==='bili' ? '📺' : (it.kind==='url' ? '🔗' : '📁');
+    const meta = (it.kind==='bili' ? 'B站 · ' : (it.kind==='url' ? 'MP4直链 · ' : '本地文件 · 需持有者在线 · ')) + '由 '+escapeHtml(it.by||'朋友')+' 添加';
+    let ops = '';
+    if(S.host){
+      ops += '<button class="btn small" onclick="plPlay(\''+it.id+'\')">'+(it.id===S.nowPlayingId?'▶ 播放中':'▶ 播放')+'</button>';
+    }
+    if(S.host || it.byId === S.peerId){
+      ops += '<button class="btn ghost small" onclick="plDel(\''+it.id+'\')">✕</button>';
+    }
+    div.innerHTML = '<span class="pl-ico">'+ico+'</span>'+
+      '<span class="pl-title"><div class="t">'+escapeHtml(it.title||'未命名视频')+'</div><div class="m">'+meta+'</div></span>'+
+      '<span class="pl-ops">'+ops+'</span>';
+    box.appendChild(div);
+  });
+}
+/* 主持人：点播列表项（全员跟随） */
+function plPlay(id){
   if(!S.host) return;
-  switchVideo({mode:'local', fname:f.name, fsize:f.size}, f);
+  const it = S.playlist.find(x => x.id===id);
+  if(!it) return;
+  S.nowPlayingId = id;
+  let spec, file = null;
+  if(it.kind==='bili'){ spec = {mode:'bili', bvid:it.bvid, page:it.page||1}; }
+  else if(it.kind==='url'){ spec = {mode:'url', vurl:it.vurl}; }
+  else {
+    spec = {mode:'local', fname:it.fname, fsize:it.fsize||0, ownerPeerId:it.byId, ownerName:it.by};
+    if(it.byId === S.peerId && window._plMyFiles && window._plMyFiles[it.fname]) file = window._plMyFiles[it.fname];
+  }
+  switchVideo(spec, file);
+  broadcastPlaylist();
+  renderPlaylist();
+}
+/* 删除列表项：主持人可删任何项；成员只能删自己添加的 */
+function plDel(id){
+  if(S.host){
+    const it = S.playlist.find(x => x.id===id);
+    S.playlist = S.playlist.filter(x => x.id!==id);
+    if(S.nowPlayingId === id) S.nowPlayingId = null;
+    broadcastPlaylist();
+    renderPlaylist();
+    toast('已删除'+(it? '：'+(it.title||'视频') : ''));
+  } else if(S.conn && S.conn.open){
+    S.conn.send({t:'plDel', id:id});
+  }
 }
 /* 主持人端执行切换：更新自己 + 广播 switch 给全员 */
 function switchVideo(spec, file){
   // 若在推流，先停（模式/源都变了，旧推流作废）
   if(S.streamOn) stopStreaming();
   if(S.sharing) stopShare();   // 我正在分享画面时切换视频：先停分享（旧画面作废）
+  if(S.mainOn) stopMainShare();   // 我的主画面推流同样作废
   S.curT = 0; S.lastPlaying = false;
   clockSet(0, false);
   S._synced = false;   // 成员端下次 state 时也无需重建 bili 播放器（由 switch 消息处理）
@@ -1588,6 +1951,9 @@ function switchVideo(spec, file){
   S.fsize = spec.fsize || 0;
   S.fileReady = false;
   S._started = true;   // 防止 hashchange 误触发重初始化
+  // 本地文件项：主持人自己没有文件时，标记"等待持有者推流"（控制指令仍会广播给持有者执行）
+  S.awaitingOwner = (spec.mode==='local' && !file);
+  S.ownerName = spec.ownerName || '';
   // 不改 location.hash（房间号不变），只更新邀请链接与 UI
   applyModeUI();
   showInvite();
@@ -1606,14 +1972,21 @@ function switchVideo(spec, file){
     loadLocalFile(file);
     $('playState').textContent = '已切换到本地文件，点「播放」开播';
     toast('已切换到本地文件');
+  } else if(spec.mode==='local' && !file){
+    // 播放列表中成员添加的本地文件：主持人没文件，等待持有者推流
+    $('playState').textContent = S.ownerName ? '等待 '+S.ownerName+' 开推流（TA选的本地文件）' : '等待文件持有者开推流';
+    toast('已切换到成员的本地文件项，画面由持有者推流', 4500);
   }
-  broadcast({t:'switch', mode:S.mode, bvid:S.bvid, page:S.page, vurl:S.vurl, fname:S.fname, fsize:S.fsize, by:S.myName});
+  broadcast({t:'switch', mode:S.mode, bvid:S.bvid, page:S.page, vurl:S.vurl, fname:S.fname, fsize:S.fsize,
+    ownerPeerId:(spec.mode==='local' && !file ? (spec.ownerPeerId||null) : null), ownerName:(spec.ownerName||''),
+    by:S.myName});
   syncMembers();
 }
 /* 成员端收到 switch：自动跟随切换 */
 function onSwitchVideo(d){
   if(S.host) return;
   if(S.streamOn){ S.streamOn = false; $('streamVideo').classList.add('hidden'); try{ $('streamVideo').srcObject = null; }catch(e){} }
+  if(S.mainOn) stopMainShare();   // 主持人切到新视频：我的旧主画面推流作废
   S.curT = 0; S.lastPlaying = false;
   clockSet(0, false);
   S._synced = false;
@@ -1624,6 +1997,7 @@ function onSwitchVideo(d){
   S.fname = d.fname || '';
   S.fsize = d.fsize || 0;
   S.fileReady = false;
+  S.awaitingOwner = false;
   const v = $('localVideo');
   v.pause(); try{ v.removeAttribute('src'); v.load(); }catch(e){}
   applyModeUI();
@@ -1634,8 +2008,26 @@ function onSwitchVideo(d){
     loadUrlVideo(S.vurl);
     $('playState').textContent = '主持人已切换视频（MP4直链），自动开播中';
   } else if(d.mode==='local'){
-    $('playState').textContent = '主持人已切换到本地文件：请在画面里选择同一文件';
-    $('filePickWarn').textContent = '';
+    if(d.ownerPeerId && d.ownerPeerId === S.peerId){
+      // 轮到我当内容源：本地文件项的持有者是我——加载文件并把画面推上主画面
+      const mine = (window._plMyFiles||{})[S.fname];
+      if(mine){
+        loadLocalFile(mine);
+        startMainShare();
+        $('playState').textContent = '正在播放你的文件并把画面推给全房间';
+        toast('轮到你的视频了：已自动加载并推流给全房间', 4500);
+      } else {
+        window._awaitingMyTurn = true;   // 选完文件自动推流的标志
+        $('playState').textContent = '轮到你的视频了：请在画面里选择文件「'+(S.fname||'')+'」，选完自动推流';
+        $('filePickTitle').textContent = '轮到你的视频：请选择你的文件';
+        toast('轮到你的视频：请选择该文件，选完会自动推流', 5000);
+      }
+    } else {
+      $('playState').textContent = d.ownerPeerId
+        ? '主持人播放了 '+(d.ownerName||'成员')+' 的本地文件：等待TA开推流，或选择你持有的同一文件'
+        : '主持人已切换到本地文件：请在画面里选择同一文件';
+      $('filePickWarn').textContent = '';
+    }
   }
   addChat('system', '主持人切换了视频，已自动跟随');
   toast('主持人切换了视频');
@@ -1696,7 +2088,7 @@ function renderMembers(){
   box.innerHTML = '';
   let list = [];
   if(S.host){
-    list = S.members.map(m => ({id:m.id, name:m.name, mic:(m.id==='me'? S.mic : !!m.mic), me: m.id==='me', muted: !!m.muted}));
+    list = S.members.map(m => ({id:m.id, name:m.name, mic:(m.id==='me'? S.mic : !!m.mic), me: m.id==='me', muted: !!m.muted, deafened: !!m.deafened}));
   } else {
     list = S.roomMembers || [];
   }
@@ -1710,6 +2102,7 @@ function renderMembers(){
       (m.mic?' <span class="mic-tag">🎤 语音中</span>':'')+
       (S.host && !m.me ? '<span class="mini-ops">'+
         '<button class="mini-btn" title="禁言/解除禁言" onclick="muteMember(\''+m.id+'\')">'+(m.muted?'🔇':'🔊')+'</button>'+
+        '<button class="mini-btn" title="禁听/解除禁听（听不到大家说话）" onclick="deafenMember(\''+m.id+'\')">'+(m.deafened?'🔕':'🎧')+'</button>'+
         '<button class="mini-btn" title="移出房间" onclick="kickMember(\''+m.id+'\')">⛔</button></span>' : '');
     box.appendChild(c);
   });
@@ -1744,6 +2137,17 @@ function kickMember(pid){
   closeVoicePeer(pid);   // 一并断开与该成员的语音/推流连接
   syncMembers();
   toast('已移出'+(m?m.name:'该成员'));
+}
+/* 主持人管理：禁听（该成员听不到大家说话，但大家仍能听到TA） */
+function deafenMember(pid){
+  if(!S.host) return;
+  const m = S.members.find(x => x.id===pid);
+  if(!m) return;
+  m.deafened = !m.deafened;
+  const conn = findConn(pid);
+  if(conn){ try{ conn.send({t:'deafen', on:m.deafened}); }catch(e){} }
+  renderMembers();
+  toast((m.deafened?'已禁听':'已解除禁听')+(m.name||''));
 }
 
 /* ================= 邀请 ================= */
