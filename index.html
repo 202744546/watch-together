@@ -165,7 +165,7 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
 <header>
   <div class="header-in">
-    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v3.3</span></div>
+    <div class="logo"><span class="dot">▶</span>一起看视频 <span id="verTag" style="font-size:11px;color:#9ca3af;font-weight:400">v3.4</span></div>
     <div id="headerRoom" class="header-badge hidden">
       <span class="status-dot" id="statusDot"></span>
       房间 <b id="roomIdText"></b>
@@ -179,7 +179,10 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
 
   <!-- ============ 首页 ============ -->
   <section id="homeView">
-    <div class="card">
+    <div class="card hidden" id="createFold" style="padding:10px 16px;text-align:center">
+      <a href="javascript:void(0)" onclick="expandCreate()" style="font-size:13px;color:#2563eb">▸ 想自己开房间？点这里展开创建</a>
+    </div>
+    <div class="card" id="createCard">
       <div class="row" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">
         <button id="tabBili" class="btn" onclick="pickMode('bili')">📺 B站视频</button>
         <button id="tabUrl" class="btn ghost" onclick="pickMode('url')">🔗 MP4直链</button>
@@ -243,6 +246,8 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
         <b>播放列表：</b>主持人和成员都可把 B站链接 / MP4直链 / 本地文件加入列表；主持人点「▶ 播放」切换，全员自动跟随；本地文件项播放时需持有者在线推流<br>
           <b>快捷键：</b>←/→ 各退/进 5 秒；长按 → 键 2 倍速（长按时 ↑↓ 调倍速，松开恢复）——本地/直链模式支持，B站模式不支持倍速<br>
           <b>房间密码：</b>主持人创建房间时可设密码（口头告知朋友）；也可在首页直接输入房间号进入<br>
+          <b>邀请链接：</b>链接只含房间号，不泄露你在看的视频；朋友打开后自动对齐当前画面<br>
+          <b>创建锁：</b>创建房间需要创建码（仅首次输入，本设备永久记住）；普通设备只能通过房间号加入，防止朋友随手乱建房间<br>
           <b>成员管理：</b>主持人可禁言（不能说话）、禁听（听不到别人）、移出成员；成员可「分享画面」作为副屏<br>
           <b>通用：</b>支持文字聊天与语音通话；主持人可开放「成员控制」让朋友也能同步画面<br><br>
         <span class="alert">语音与串流需 HTTPS 环境（本地双击打开时不可用）；本地文件不会上传网络，只同步播放进度。</span>
@@ -380,6 +385,19 @@ footer{text-align:center;color:#9ca3af;font-size:12px;padding:10px 0 30px;line-h
   </div>
 </div>
 
+<div class="mask hidden" id="lockInputModal">
+  <div class="modal">
+    <h3>🔒 创建功能已锁定</h3>
+    <p style="font-size:13px;color:#64748b">本网页的「创建房间」默认锁定：房主已开启创建锁，普通设备只能通过房间号加入房间。如你确实是房主或获得授权，请输入创建码。</p>
+    <input id="lockCodeInput" class="url-input" placeholder="输入创建码" maxlength="12" autocomplete="off">
+    <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn" onclick="lockInputConfirm()">解锁本设备并继续</button>
+      <button class="btn ghost" onclick="closeLockInput()">返回</button>
+    </div>
+    <p style="font-size:11px;color:#94a3b8;margin-top:10px">解锁只对当前设备的这个浏览器生效（永久记住）；忘记创建码请联系房主。本锁为纯前端引导级限制，无法防止技术绕过。</p>
+  </div>
+</div>
+
 <div class="mask hidden" id="switchModal" onclick="if(event.target===this)closeSwitchModal()">
   <div class="modal" style="max-width:600px;max-height:82vh;overflow:auto">
     <h3>📜 播放列表</h3>
@@ -462,7 +480,7 @@ const S = {
   viewingStream:false    // 我正在观看某人推流的主画面
 };
 const ROOM_PREFIX = 'yk-sync-';
-const APP_VERSION = 'v3.3';
+const APP_VERSION = 'v3.4';
 /* WebRTC 打洞服务器：优先国内 STUN（腾讯/B站/CDNBye），备选 Google STUN + 免费 TURN 兼底 */
 const RTC_CONFIG = {
   iceServers: [
@@ -575,7 +593,58 @@ function parseUrlLink(){
   const fn = u.split('/').pop().split('?')[0] || 'video.mp4';
   $('vidCard').innerHTML = '<div class="thumb">🔗</div><div class="info"><div class="t">'+escapeHtml(fn)+'</div><div class="m">MP4 直链 · 双方打开即可同步观看</div></div>';
 }
+/* ================= 创建锁（防误用级：默认锁定，输码解锁设备） ================= */
+const HOST_LOCK_CODE = 'YK2580';   // 写死在页面里的创建码（改码需重新部署）；纯前端锁只能防普通用户，无法防技术绕过
+function lockUnlocked(){ try{ return localStorage.getItem('wt_unlocked') === '1'; }catch(e){ return false; } }
+function lockedOut(){ return !lockUnlocked(); }
+let _pendingCreate = false;
+function hostLockGate(){
+  if(!lockedOut()) return true;   // 已解锁：直接创建
+  _pendingCreate = true;
+  $('lockCodeInput').value = '';
+  $('lockInputModal').classList.remove('hidden');
+  $('lockCodeInput').focus();
+  return false;
+}
+function lockInputConfirm(){
+  const v = ($('lockCodeInput').value||'').trim();
+  if(v === HOST_LOCK_CODE){
+    try{ localStorage.setItem('wt_unlocked', '1'); }catch(e){}   // 永久解锁本设备
+    $('lockInputModal').classList.add('hidden');
+    toast('已解锁：本设备可创建房间了');
+    if(_pendingCreate){ _pendingCreate = false; createRoom(); }
+  } else {
+    toast('创建码不对');
+  }
+}
+function closeLockInput(){ $('lockInputModal').classList.add('hidden'); _pendingCreate = false; }
+/* 首页访客简化态：通过邀请链接进过房的设备，突出「重新加入」、折叠创建区 */
+function homeLayout(){
+  let wasHost = false, wasGuest = false;
+  try{ wasHost = localStorage.getItem('wt_wasHost') === '1'; wasGuest = localStorage.getItem('wt_wasGuest') === '1'; }catch(e){}
+  // 预填上次房间号与密码：退出后一键重进
+  try{
+    const lastRoom = localStorage.getItem('wt_lastRoom') || '';
+    const savedPwd = sessionStorage.getItem('wt_joinPwd') || '';
+    if(lastRoom && $('joinRoomInput')) $('joinRoomInput').value = lastRoom;
+    if(savedPwd && $('joinPwdInput')) $('joinPwdInput').value = savedPwd;
+  }catch(e){}
+  if(wasGuest && !wasHost && !lockUnlocked()){
+    // 访客且未解锁：折叠创建区，只留一行展开入口
+    $('createCard').classList.add('hidden');
+    if($('vidCardWrap')) $('vidCardWrap').classList.add('hidden');
+    $('createFold').classList.remove('hidden');
+  } else {
+    $('createCard').classList.remove('hidden');
+    $('createFold').classList.add('hidden');
+  }
+}
+function expandCreate(){
+  $('createFold').classList.add('hidden');
+  $('createCard').classList.remove('hidden');
+}
 function createRoom(){
+  if(!hostLockGate()) return;   // 创建锁：未解锁的设备弹码框
   const nick = ($('nickInput').value||'').trim();
   if(!nick){ toast('请先填写昵称'); return; }
   S.pwd = ($('roomPwdInput').value||'').trim();   // 房间密码：只存主持人内存，不进邀请链接（另行口头告知成员）
@@ -674,6 +743,7 @@ function startHost(){
   S.curT = 0; S.lastPlaying = false;
   $('timerTime').textContent = fmt(S.curT);
   plRestore();   // 恢复本房间的播放列表（刷新不丢）
+  try{ localStorage.setItem('wt_wasHost', '1'); }catch(e){}   // 主持人身份标记：首页不做访客简化
   if(S.mode==='local' && window._localFile){ loadLocalFile(window._localFile); }
   else if(S.mode==='url'){ loadUrlVideo(S.vurl); }
   else if(S.mode==='bili') buildPlayer(0, false);
@@ -720,6 +790,7 @@ function connectToHost(){
     S.conn = conn;
     S._connEverOk = true;
     setStatus(true);
+    try{ localStorage.setItem('wt_wasGuest', '1'); }catch(e){}   // 访客身份标记：退出后首页突出「重新加入」
     addChat('system','已加入房间，等待主持人同步…');
     if(S.mic) connectVoiceAll();
   });
@@ -2153,11 +2224,8 @@ function deafenMember(pid){
 /* ================= 邀请 ================= */
 function showInvite(){
   const base = location.origin + location.pathname + (location.search || '?v=' + APP_VERSION.replace('v',''));
-  let roomPart = 'room='+S.roomId;
-  if(S.mode==='local'){ roomPart += '&mode=local&fname='+encodeURIComponent(S.fname)+'&fsize='+S.fsize; }
-  else if(S.mode==='url'){ roomPart += '&mode=url&vurl='+encodeURIComponent(S.vurl); }
-  else { roomPart += '&bvid='+S.bvid+'&p='+S.page; }
-  const link = base + '#' + roomPart;
+  // 极简邀请链接：只带房间号（视频信息由主持人 init 自动下发对齐，链接不再泄露在看什么）
+  const link = base + '#room=' + S.roomId;
   S.inviteLink = link;
   $('inviteUrl').value = link;
   if(location.protocol === 'file:'){
@@ -2216,6 +2284,8 @@ setInterval(()=>{ if(S.mode==='bili' && S.clock.running) clockTick(); }, 500);
     const saved = localStorage.getItem('wt_nick')||'';
     if(saved && $('nickInput')) $('nickInput').value = saved;
   }catch(e){}
+  // 首页布局：访客简化态 + 预填上次房间号/密码
+  homeLayout();
   if(location.hash && location.hash.length>4){
     initFromHash();
   }
